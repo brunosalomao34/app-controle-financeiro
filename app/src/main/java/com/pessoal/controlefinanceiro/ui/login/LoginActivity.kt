@@ -1,7 +1,6 @@
-package com.pessoal.controlefinanceiro
+package com.pessoal.controlefinanceiro.ui.login
 
 import android.app.Activity
-import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -18,6 +17,8 @@ import com.google.android.gms.auth.api.signin.GoogleSignInClient
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.Scope
 import com.google.api.services.sheets.v4.SheetsScopes
+import com.pessoal.controlefinanceiro.data.SheetsRepository
+import com.pessoal.controlefinanceiro.ui.nav.AppNavHost
 
 class LoginActivity : ComponentActivity() {
 
@@ -50,10 +51,13 @@ class LoginActivity : ComponentActivity() {
         googleSignInClient = GoogleSignIn.getClient(this, gso)
 
         setContent {
+            var conectado by remember { mutableStateOf(false) }
+            var repositorio by remember { mutableStateOf<SheetsRepository?>(null) }
             var status by remember { mutableStateOf("Não conectado") }
 
             onLoginSuccess = { account ->
-                status = "Conectado como: ${account.email}"
+                repositorio = SheetsRepository(this@LoginActivity, account.account!!)
+                conectado = true
             }
             onLoginError = { e ->
                 status = "Erro no login: ${e.message}"
@@ -61,17 +65,21 @@ class LoginActivity : ComponentActivity() {
 
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    Column(
-                        modifier = Modifier.fillMaxSize().padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Text(text = status)
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Button(onClick = {
-                            signInLauncher.launch(googleSignInClient.signInIntent)
-                        }) {
-                            Text("Entrar com Google")
+                    if (conectado && repositorio != null) {
+                        AppNavHost(repository = repositorio!!)
+                    } else {
+                        Column(
+                            modifier = Modifier.fillMaxSize().padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text(text = status)
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Button(onClick = {
+                                signInLauncher.launch(googleSignInClient.signInIntent)
+                            }) {
+                                Text("Entrar com Google")
+                            }
                         }
                     }
                 }

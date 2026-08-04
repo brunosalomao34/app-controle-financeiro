@@ -54,6 +54,18 @@ class LoginActivity : ComponentActivity() {
             var conectado by remember { mutableStateOf(false) }
             var repositorio by remember { mutableStateOf<SheetsRepository?>(null) }
             var status by remember { mutableStateOf("Não conectado") }
+            var verificandoLoginSalvo by remember { mutableStateOf(true) }
+
+            LaunchedEffect(Unit) {
+                val contaSalva = GoogleSignIn.getLastSignedInAccount(this@LoginActivity)
+                if (contaSalva != null &&
+                    GoogleSignIn.hasPermissions(contaSalva, Scope(SheetsScopes.SPREADSHEETS))
+                ) {
+                    repositorio = SheetsRepository(this@LoginActivity, contaSalva.account!!)
+                    conectado = true
+                }
+                verificandoLoginSalvo = false
+            }
 
             onLoginSuccess = { account ->
                 repositorio = SheetsRepository(this@LoginActivity, account.account!!)
@@ -65,20 +77,28 @@ class LoginActivity : ComponentActivity() {
 
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    if (conectado && repositorio != null) {
-                        AppNavHost(repository = repositorio!!)
-                    } else {
-                        Column(
-                            modifier = Modifier.fillMaxSize().padding(24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Text(text = status)
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Button(onClick = {
-                                signInLauncher.launch(googleSignInClient.signInIntent)
-                            }) {
-                                Text("Entrar com Google")
+                    when {
+                        verificandoLoginSalvo -> {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator()
+                            }
+                        }
+                        conectado && repositorio != null -> {
+                            AppNavHost(repository = repositorio!!)
+                        }
+                        else -> {
+                            Column(
+                                modifier = Modifier.fillMaxSize().padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Text(text = status)
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Button(onClick = {
+                                    signInLauncher.launch(googleSignInClient.signInIntent)
+                                }) {
+                                    Text("Entrar com Google")
+                                }
                             }
                         }
                     }

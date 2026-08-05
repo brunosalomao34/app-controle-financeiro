@@ -28,6 +28,9 @@ private val MESES = listOf(
     "Setembro" to "set", "Outubro" to "out", "Novembro" to "nov", "Dezembro" to "dez"
 )
 
+// Altura máxima dos menus suspensos: ~5 itens visíveis (48dp cada), com scroll pro resto
+private val ALTURA_MAXIMA_DROPDOWN = 240.dp
+
 /**
  * Tela de Lista — filtra os lançamentos por Mês/Ano.
  * Lançamentos parcelados aparecem em todos os meses cobertos pela parcela
@@ -108,7 +111,11 @@ fun ListaLancamentosScreen(repository: SheetsRepository, aoEditar: (Int) -> Unit
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = mesExpandido) },
                     modifier = Modifier.fillMaxWidth().menuAnchor()
                 )
-                ExposedDropdownMenu(expanded = mesExpandido, onDismissRequest = { mesExpandido = false }) {
+                ExposedDropdownMenu(
+                    expanded = mesExpandido,
+                    onDismissRequest = { mesExpandido = false },
+                    modifier = Modifier.heightIn(max = ALTURA_MAXIMA_DROPDOWN)
+                ) {
                     MESES.forEach { m ->
                         DropdownMenuItem(text = { Text(m.first) }, onClick = {
                             mesSelecionado = m
@@ -131,7 +138,11 @@ fun ListaLancamentosScreen(repository: SheetsRepository, aoEditar: (Int) -> Unit
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = anoExpandido) },
                     modifier = Modifier.fillMaxWidth().menuAnchor()
                 )
-                ExposedDropdownMenu(expanded = anoExpandido, onDismissRequest = { anoExpandido = false }) {
+                ExposedDropdownMenu(
+                    expanded = anoExpandido,
+                    onDismissRequest = { anoExpandido = false },
+                    modifier = Modifier.heightIn(max = ALTURA_MAXIMA_DROPDOWN)
+                ) {
                     anos.forEach { a ->
                         DropdownMenuItem(text = { Text(a.toString()) }, onClick = {
                             anoSelecionado = a

@@ -35,6 +35,9 @@ private val NOMES_MESES = listOf(
 private val CorEntradas = Color(0xFF00C853) // verde vivo
 private val CorSaidas = Color(0xFFD50000)   // vermelho forte
 
+// Altura máxima do menu suspenso: ~5 itens visíveis (48dp cada), com scroll pro resto
+private val ALTURA_MAXIMA_DROPDOWN = 240.dp
+
 /**
  * Tela de Resumo — mostra, para o ano selecionado: totais do ano,
  * tabela mês a mês e gráfico de barras (Entradas x Saídas).
@@ -98,7 +101,11 @@ fun ResumoScreen(repository: SheetsRepository) {
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = anoExpandido) },
                 modifier = Modifier.fillMaxWidth().menuAnchor()
             )
-            ExposedDropdownMenu(expanded = anoExpandido, onDismissRequest = { anoExpandido = false }) {
+            ExposedDropdownMenu(
+                expanded = anoExpandido,
+                onDismissRequest = { anoExpandido = false },
+                modifier = Modifier.heightIn(max = ALTURA_MAXIMA_DROPDOWN)
+            ) {
                 anosDisponiveis.forEach { ano ->
                     DropdownMenuItem(text = { Text(ano.toString()) }, onClick = {
                         anoSelecionado = ano

@@ -67,12 +67,13 @@ class SheetsRepository(context: Context, account: Account) {
      */
     suspend fun salvarLancamento(
         linha: Int,
-        data: String,          // "dd/MM/yyyy"
+        data: String,
         descricao: String,
         categoria: String,
         valorTotal: Double,
+        formaPagamento: String,
         qtdParcelas: Int?,
-        mesAno: String,         // "jan/2026"
+        mesAno: String,
         observacoes: String
     ) = withContext(Dispatchers.IO) {
         val colunasAC = ValueRange().setValues(listOf(listOf(data, descricao, categoria)))
@@ -81,11 +82,11 @@ class SheetsRepository(context: Context, account: Account) {
             .setValueInputOption("USER_ENTERED")
             .execute()
 
-        val colunasEH = ValueRange().setValues(
-            listOf(listOf(valorTotal, qtdParcelas ?: "", mesAno, observacoes))
+        val colunasEI = ValueRange().setValues(
+            listOf(listOf(valorTotal, formaPagamento, qtdParcelas ?: "", mesAno, observacoes))
         )
         sheetsService.spreadsheets().values()
-            .update(SPREADSHEET_ID, "Lançamentos!E$linha:H$linha", colunasEH)
+            .update(SPREADSHEET_ID, "Lançamentos!E$linha:I$linha", colunasEI)
             .setValueInputOption("USER_ENTERED")
             .execute()
     }
@@ -99,6 +100,7 @@ class SheetsRepository(context: Context, account: Account) {
         descricao: String,
         categoria: String,
         valorTotal: Double,
+        formaPagamento: String,
         qtdParcelas: Int?,
         mesAno: String,
         observacoes: String
@@ -109,11 +111,11 @@ class SheetsRepository(context: Context, account: Account) {
             .setValueInputOption("USER_ENTERED")
             .execute()
 
-        val colunasEH = ValueRange().setValues(
-            listOf(listOf(valorTotal, qtdParcelas ?: "", mesAno, observacoes))
+        val colunasEI = ValueRange().setValues(
+            listOf(listOf(valorTotal, formaPagamento, qtdParcelas ?: "", mesAno, observacoes))
         )
         sheetsService.spreadsheets().values()
-            .update(SPREADSHEET_ID, "Lançamentos!E$linha:H$linha", colunasEH)
+            .update(SPREADSHEET_ID, "Lançamentos!E$linha:I$linha", colunasEI)
             .setValueInputOption("USER_ENTERED")
             .execute()
     }
@@ -130,9 +132,9 @@ class SheetsRepository(context: Context, account: Account) {
             .setValueInputOption("USER_ENTERED")
             .execute()
 
-        val colunasVaziasEH = ValueRange().setValues(listOf(listOf("", "", "", "")))
+        val colunasVaziasEI = ValueRange().setValues(listOf(listOf("", "", "", "", "")))
         sheetsService.spreadsheets().values()
-            .update(SPREADSHEET_ID, "Lançamentos!E$linha:H$linha", colunasVaziasEH)
+            .update(SPREADSHEET_ID, "Lançamentos!E$linha:I$linha", colunasVaziasEI)
             .setValueInputOption("USER_ENTERED")
             .execute()
     }
@@ -144,7 +146,7 @@ class SheetsRepository(context: Context, account: Account) {
      */
     suspend fun listarLancamentos(): List<Lancamento> = withContext(Dispatchers.IO) {
         val response = sheetsService.spreadsheets().values()
-            .get(SPREADSHEET_ID, "Lançamentos!A3:L500")
+            .get(SPREADSHEET_ID, "Lançamentos!A3:M500")
             .setValueRenderOption("UNFORMATTED_VALUE")
             .setDateTimeRenderOption("SERIAL_NUMBER")
             .execute()
@@ -152,13 +154,10 @@ class SheetsRepository(context: Context, account: Account) {
         val formatoData = SimpleDateFormat("dd/MM/yyyy", Locale("pt", "BR"))
 
         linhas.mapIndexedNotNull { indice, colunas ->
-            val dataSerial = (colunas.getOrNull(0) as? Number)?.toDouble()
-                ?: return@mapIndexedNotNull null // linha sem data = linha vazia, ignora
-
+            val dataSerial = (colunas.getOrNull(0) as? Number)?.toDouble() ?: return@mapIndexedNotNull null
             val dataConvertida = serialParaData(dataSerial)
 
-            // Coluna G (Mês/Ano) também vem como serial de data
-            val mesAnoSerial = (colunas.getOrNull(6) as? Number)?.toDouble()
+            val mesAnoSerial = (colunas.getOrNull(7) as? Number)?.toDouble() // coluna H
             val dataMesAno = mesAnoSerial?.let { serialParaData(it) } ?: dataConvertida
             val calendarioMesAno = Calendar.getInstance().apply { time = dataMesAno }
 
@@ -167,16 +166,17 @@ class SheetsRepository(context: Context, account: Account) {
                 data = formatoData.format(dataConvertida),
                 descricao = colunas.getOrNull(1)?.toString().orEmpty(),
                 categoria = colunas.getOrNull(2)?.toString().orEmpty(),
-                tipo = colunas.getOrNull(3)?.toString().orEmpty(),                      // coluna D
-                valorTotal = (colunas.getOrNull(4) as? Number)?.toDouble() ?: 0.0,      // coluna E
-                valorParcela = (colunas.getOrNull(9) as? Number)?.toDouble() ?: 0.0,    // coluna J
-                qtdParcelas = (colunas.getOrNull(8) as? Number)?.toInt()                // coluna I
-                    ?: (colunas.getOrNull(5) as? Number)?.toInt() ?: 1,
+                tipo = colunas.getOrNull(3)?.toString().orEmpty(),                      // D
+                valorTotal = (colunas.getOrNull(4) as? Number)?.toDouble() ?: 0.0,      // E
+                formaPagamento = colunas.getOrNull(5)?.toString().orEmpty(),            // F
+                qtdParcelas = (colunas.getOrNull(9) as? Number)?.toInt()                // J (aux)
+                    ?: (colunas.getOrNull(6) as? Number)?.toInt() ?: 1,                 // G (fallback)
+                valorParcela = (colunas.getOrNull(10) as? Number)?.toDouble() ?: 0.0,   // K (aux)
                 mesNumero = calendarioMesAno.get(Calendar.MONTH) + 1,
                 anoNumero = calendarioMesAno.get(Calendar.YEAR),
-                mesInicioIndex = (colunas.getOrNull(10) as? Number)?.toInt() ?: 0,      // coluna K
-                mesFimIndex = (colunas.getOrNull(11) as? Number)?.toInt() ?: -1,        // coluna L
-                observacoes = colunas.getOrNull(7)?.toString().orEmpty()
+                mesInicioIndex = (colunas.getOrNull(11) as? Number)?.toInt() ?: 0,      // L (aux)
+                mesFimIndex = (colunas.getOrNull(12) as? Number)?.toInt() ?: -1,        // M (aux)
+                observacoes = colunas.getOrNull(8)?.toString().orEmpty()                // I
             )
         }
     }

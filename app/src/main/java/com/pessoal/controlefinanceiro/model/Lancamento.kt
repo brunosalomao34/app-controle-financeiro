@@ -7,6 +7,7 @@ data class Lancamento(
     val categoria: String,
     val tipo: String,
     val valorTotal: Double,
+    val formaPagamento: String,
     val valorParcela: Double,
     val qtdParcelas: Int,
     val mesNumero: Int,

@@ -20,9 +20,18 @@ import com.google.api.services.sheets.v4.SheetsScopes
 import com.pessoal.controlefinanceiro.data.SheetsRepository
 import com.pessoal.controlefinanceiro.ui.nav.AppNavHost
 
+/**
+ * Activity única do app. Cuida do login com Google (com sessão automática
+ * nas aberturas seguintes) e, uma vez conectado, entrega o controle pro
+ * AppNavHost (Navigation Compose com as 3 telas principais).
+ */
 class LoginActivity : ComponentActivity() {
 
     private lateinit var googleSignInClient: GoogleSignInClient
+
+    // Callbacks preenchidos dentro do setContent, chamados pelo resultado do login
+    private var onLoginSuccess: (GoogleSignInAccount) -> Unit = {}
+    private var onLoginError: (Exception) -> Unit = {}
 
     private val signInLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -30,25 +39,21 @@ class LoginActivity : ComponentActivity() {
         if (result.resultCode == Activity.RESULT_OK) {
             val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
             try {
-                val account = task.getResult(Exception::class.java)
-                onLoginSuccess(account)
+                onLoginSuccess(task.getResult(Exception::class.java))
             } catch (e: Exception) {
                 onLoginError(e)
             }
         }
     }
 
-    private var onLoginSuccess: (GoogleSignInAccount) -> Unit = {}
-    private var onLoginError: (Exception) -> Unit = {}
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+        val opcoesLogin = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestEmail()
             .requestScopes(Scope(SheetsScopes.SPREADSHEETS))
             .build()
-        googleSignInClient = GoogleSignIn.getClient(this, gso)
+        googleSignInClient = GoogleSignIn.getClient(this, opcoesLogin)
 
         setContent {
             var conectado by remember { mutableStateOf(false) }
@@ -56,6 +61,8 @@ class LoginActivity : ComponentActivity() {
             var status by remember { mutableStateOf("Não conectado") }
             var verificandoLoginSalvo by remember { mutableStateOf(true) }
 
+            // Login automático: reaproveita a sessão salva do Google, se existir
+            // e ainda tiver a permissão da planilha concedida
             LaunchedEffect(Unit) {
                 val contaSalva = GoogleSignIn.getLastSignedInAccount(this@LoginActivity)
                 if (contaSalva != null &&
@@ -94,9 +101,7 @@ class LoginActivity : ComponentActivity() {
                             ) {
                                 Text(text = status)
                                 Spacer(modifier = Modifier.height(16.dp))
-                                Button(onClick = {
-                                    signInLauncher.launch(googleSignInClient.signInIntent)
-                                }) {
+                                Button(onClick = { signInLauncher.launch(googleSignInClient.signInIntent) }) {
                                     Text("Entrar com Google")
                                 }
                             }

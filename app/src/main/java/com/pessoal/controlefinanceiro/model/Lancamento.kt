@@ -11,7 +11,7 @@ data class Lancamento(
     val qtdParcelas: Int,
     val mesNumero: Int,
     val anoNumero: Int,
-    val mesInicioIndex: Int,   // coluna K
-    val mesFimIndex: Int,      // coluna L
+    val mesInicioIndex: Int,
+    val mesFimIndex: Int,
     val observacoes: String
 )

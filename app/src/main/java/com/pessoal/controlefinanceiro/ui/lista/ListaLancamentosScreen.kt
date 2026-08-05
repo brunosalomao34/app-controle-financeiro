@@ -12,11 +12,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.pessoal.controlefinanceiro.data.SheetsRepository
 import com.pessoal.controlefinanceiro.model.Lancamento
 import kotlinx.coroutines.launch
 import java.text.NumberFormat
-import java.util.*
+import java.util.Calendar
+import java.util.Locale
 
 private val MESES = listOf(
     "Janeiro" to "jan", "Fevereiro" to "fev", "Março" to "mar", "Abril" to "abr",
@@ -24,6 +28,11 @@ private val MESES = listOf(
     "Setembro" to "set", "Outubro" to "out", "Novembro" to "nov", "Dezembro" to "dez"
 )
 
+/**
+ * Tela de Lista — filtra os lançamentos por Mês/Ano.
+ * Lançamentos parcelados aparecem em todos os meses cobertos pela parcela
+ * (usando as colunas auxiliares K "Mês Início" e L "Mês Fim" da planilha).
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ListaLancamentosScreen(repository: SheetsRepository, aoEditar: (Int) -> Unit) {
@@ -36,7 +45,7 @@ fun ListaLancamentosScreen(repository: SheetsRepository, aoEditar: (Int) -> Unit
     val calendarioAtual = remember { Calendar.getInstance() }
     var mesSelecionado by remember { mutableStateOf(MESES[calendarioAtual.get(Calendar.MONTH)]) }
     var anoSelecionado by remember { mutableStateOf(calendarioAtual.get(Calendar.YEAR)) }
-    val anos = remember { (2024..2030).toList() }
+    var anos by remember { mutableStateOf<List<Int>>(emptyList()) }
     var mesExpandido by remember { mutableStateOf(false) }
     var anoExpandido by remember { mutableStateOf(false) }
 
@@ -48,10 +57,20 @@ fun ListaLancamentosScreen(repository: SheetsRepository, aoEditar: (Int) -> Unit
         carregando = false
     }
 
-    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    // Carrega a lista de anos que têm aba de Resumo na planilha
+    LaunchedEffect(Unit) {
+        anos = repository.buscarAnosDisponiveis()
+        if (anos.isNotEmpty() && anoSelecionado !in anos) {
+            anoSelecionado = anos.last()
+        }
+    }
+
+    // Recarrega os lançamentos toda vez que a tela volta a ficar visível
+    // (primeira abertura + retorno de uma edição/outra aba)
+    val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
                 scope.launch { recarregar() }
             }
         }
@@ -59,20 +78,22 @@ fun ListaLancamentosScreen(repository: SheetsRepository, aoEditar: (Int) -> Unit
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    val mesAnoFiltro = "${mesSelecionado.second}/$anoSelecionado"
+    // Filtra pelo mês/ano selecionado, usando o intervalo de parcelas (K/L)
+    // em vez de comparar a coluna Mês/Ano diretamente
     val lancamentosFiltrados = remember(todosLancamentos, mesSelecionado, anoSelecionado) {
         val numeroDoMes = MESES.indexOf(mesSelecionado) + 1
         val indiceMesConsultado = anoSelecionado * 12 + numeroDoMes
 
         todosLancamentos
             .filter { indiceMesConsultado in it.mesInicioIndex..it.mesFimIndex }
-            .sortedBy { it.linha }
+            .sortedBy { it.linha } // ordem de lançamento
     }
 
     Column(modifier = Modifier.fillMaxSize().statusBarsPadding().padding(16.dp)) {
         Text("Lançamentos", style = MaterialTheme.typography.headlineSmall)
         Spacer(modifier = Modifier.height(12.dp))
 
+        // Filtro Mês/Ano
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             ExposedDropdownMenuBox(
                 expanded = mesExpandido,
@@ -123,74 +144,52 @@ fun ListaLancamentosScreen(repository: SheetsRepository, aoEditar: (Int) -> Unit
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        if (carregando) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+        when {
+            carregando -> {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
             }
-        } else if (lancamentosFiltrados.isEmpty()) {
-            Text("Nenhum lançamento em ${mesSelecionado.first} de $anoSelecionado.")
-        } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(lancamentosFiltrados, key = { it.linha }) { lanc ->
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            modifier = Modifier.padding(12.dp).fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(lanc.descricao, style = MaterialTheme.typography.titleMedium)
-                                Text("${lanc.categoria} • ${lanc.data}", style = MaterialTheme.typography.bodySmall)
-
-                                val indiceMesConsultado = anoSelecionado * 12 + (MESES.indexOf(mesSelecionado) + 1)
-                                val numeroDaParcela = indiceMesConsultado - lanc.mesInicioIndex + 1
-
-                                if (lanc.qtdParcelas > 1) {
-                                    Text(
-                                        "${formatoMoeda.format(lanc.valorParcela)}  (parcela $numeroDaParcela/${lanc.qtdParcelas})",
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = if (lanc.tipo == "Entrada") Color(0xFF2E7D32) else Color(0xFFC62828)
-                                    )
-                                } else {
-                                    Text(
-                                        formatoMoeda.format(lanc.valorTotal),
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = if (lanc.tipo == "Entrada") Color(0xFF2E7D32) else Color(0xFFC62828)
-                                    )
-                                }
-                            }
-                            IconButton(onClick = { aoEditar(lanc.linha) }) {
-                                Icon(Icons.Default.Edit, contentDescription = "Editar")
-                            }
-                            IconButton(onClick = { lancamentoParaExcluir = lanc }) {
-                                Icon(Icons.Default.Delete, contentDescription = "Remover")
-                            }
-                        }
+            lancamentosFiltrados.isEmpty() -> {
+                Text("Nenhum lançamento em ${mesSelecionado.first} de $anoSelecionado.")
+            }
+            else -> {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(lancamentosFiltrados, key = { it.linha }) { lancamento ->
+                        ItemLancamento(
+                            lancamento = lancamento,
+                            mesSelecionado = mesSelecionado,
+                            anoSelecionado = anoSelecionado,
+                            formatoMoeda = formatoMoeda,
+                            aoEditar = { aoEditar(lancamento.linha) },
+                            aoExcluir = { lancamentoParaExcluir = lancamento }
+                        )
                     }
                 }
             }
         }
     }
 
-    lancamentoParaExcluir?.let { lanc ->
+    // Diálogo de confirmação de exclusão — avisa quando o lançamento é parcelado
+    lancamentoParaExcluir?.let { lancamento ->
         AlertDialog(
             onDismissRequest = { lancamentoParaExcluir = null },
             title = { Text("Remover lançamento?") },
             text = {
-                if (lanc.qtdParcelas > 1) {
+                if (lancamento.qtdParcelas > 1) {
                     Text(
-                        "\"${lanc.descricao}\" está parcelado em ${lanc.qtdParcelas}x. " +
-                                "Remover vai excluir TODAS as ${lanc.qtdParcelas} parcelas, não só a deste mês. " +
+                        "\"${lancamento.descricao}\" está parcelado em ${lancamento.qtdParcelas}x. " +
+                                "Remover vai excluir TODAS as ${lancamento.qtdParcelas} parcelas, não só a deste mês. " +
                                 "Essa ação não pode ser desfeita."
                     )
                 } else {
-                    Text("\"${lanc.descricao}\" será removido. Essa ação não pode ser desfeita.")
+                    Text("\"${lancamento.descricao}\" será removido. Essa ação não pode ser desfeita.")
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
                     scope.launch {
-                        repository.excluirLancamento(lanc.linha)
+                        repository.excluirLancamento(lancamento.linha)
                         lancamentoParaExcluir = null
                         recarregar()
                     }
@@ -200,5 +199,54 @@ fun ListaLancamentosScreen(repository: SheetsRepository, aoEditar: (Int) -> Unit
                 TextButton(onClick = { lancamentoParaExcluir = null }) { Text("Cancelar") }
             }
         )
+    }
+}
+
+/** Card de um lançamento na lista, com botões de editar e remover. */
+@Composable
+private fun ItemLancamento(
+    lancamento: Lancamento,
+    mesSelecionado: Pair<String, String>,
+    anoSelecionado: Int,
+    formatoMoeda: NumberFormat,
+    aoEditar: () -> Unit,
+    aoExcluir: () -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.padding(12.dp).fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(lancamento.descricao, style = MaterialTheme.typography.titleMedium)
+                Text("${lancamento.categoria} • ${lancamento.data}", style = MaterialTheme.typography.bodySmall)
+
+                val corValor = if (lancamento.tipo == "Entrada") Color(0xFF2E7D32) else Color(0xFFC62828)
+
+                if (lancamento.qtdParcelas > 1) {
+                    // Mostra o valor da parcela (não o total) + qual número dela é neste mês
+                    val indiceMesConsultado = anoSelecionado * 12 + (MESES.indexOf(mesSelecionado) + 1)
+                    val numeroDaParcela = indiceMesConsultado - lancamento.mesInicioIndex + 1
+                    Text(
+                        "${formatoMoeda.format(lancamento.valorParcela)}  (parcela $numeroDaParcela/${lancamento.qtdParcelas})",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = corValor
+                    )
+                } else {
+                    Text(
+                        formatoMoeda.format(lancamento.valorTotal),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = corValor
+                    )
+                }
+            }
+            IconButton(onClick = aoEditar) {
+                Icon(Icons.Default.Edit, contentDescription = "Editar")
+            }
+            IconButton(onClick = aoExcluir) {
+                Icon(Icons.Default.Delete, contentDescription = "Remover")
+            }
+        }
     }
 }

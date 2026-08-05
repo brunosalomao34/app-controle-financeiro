@@ -18,12 +18,17 @@ import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.Scope
 import com.google.api.services.sheets.v4.SheetsScopes
 import com.pessoal.controlefinanceiro.data.SheetsRepository
+import com.pessoal.controlefinanceiro.data.possuiConexaoInternet
+import com.pessoal.controlefinanceiro.ui.comum.SemConexaoScreen
 import com.pessoal.controlefinanceiro.ui.nav.AppNavHost
 
 /**
- * Activity única do app. Cuida do login com Google (com sessão automática
- * nas aberturas seguintes) e, uma vez conectado, entrega o controle pro
- * AppNavHost (Navigation Compose com as 3 telas principais).
+ * Activity única do app. Ordem de verificação ao abrir:
+ * 1) Tem internet? Se não, mostra SemConexaoScreen.
+ * 2) Tem sessão do Google salva com permissão da planilha? Se sim, entra direto.
+ * 3) Senão, mostra o botão "Entrar com Google".
+ * Uma vez conectado, entrega o controle pro AppNavHost (Navigation Compose
+ * com as 3 telas principais).
  */
 class LoginActivity : ComponentActivity() {
 
@@ -61,17 +66,24 @@ class LoginActivity : ComponentActivity() {
             var status by remember { mutableStateOf("Não conectado") }
             var verificandoLoginSalvo by remember { mutableStateOf(true) }
 
-            // Login automático: reaproveita a sessão salva do Google, se existir
-            // e ainda tiver a permissão da planilha concedida
-            LaunchedEffect(Unit) {
-                val contaSalva = GoogleSignIn.getLastSignedInAccount(this@LoginActivity)
-                if (contaSalva != null &&
-                    GoogleSignIn.hasPermissions(contaSalva, Scope(SheetsScopes.SPREADSHEETS))
-                ) {
-                    repositorio = SheetsRepository(this@LoginActivity, contaSalva.account!!)
-                    conectado = true
+            // Contador incrementado pelo botão "Tentar novamente" da tela de
+            // sem conexão — cada incremento dispara uma nova checagem abaixo
+            var tentativaConexao by remember { mutableIntStateOf(0) }
+            var temConexao by remember { mutableStateOf(possuiConexaoInternet(this@LoginActivity)) }
+
+            // Só tenta o login automático se houver internet no momento
+            LaunchedEffect(tentativaConexao) {
+                temConexao = possuiConexaoInternet(this@LoginActivity)
+                if (temConexao) {
+                    val contaSalva = GoogleSignIn.getLastSignedInAccount(this@LoginActivity)
+                    if (contaSalva != null &&
+                        GoogleSignIn.hasPermissions(contaSalva, Scope(SheetsScopes.SPREADSHEETS))
+                    ) {
+                        repositorio = SheetsRepository(this@LoginActivity, contaSalva.account!!)
+                        conectado = true
+                    }
+                    verificandoLoginSalvo = false
                 }
-                verificandoLoginSalvo = false
             }
 
             onLoginSuccess = { account ->
@@ -85,14 +97,21 @@ class LoginActivity : ComponentActivity() {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     when {
+                        // 1) Sem internet: mostra antes de qualquer outra checagem
+                        !temConexao -> {
+                            SemConexaoScreen(aoTentarNovamente = { tentativaConexao++ })
+                        }
+                        // 2) Ainda checando se existe login salvo
                         verificandoLoginSalvo -> {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator()
                             }
                         }
+                        // 3) Login já confirmado (automático ou manual) → app principal
                         conectado && repositorio != null -> {
                             AppNavHost(repository = repositorio!!)
                         }
+                        // 4) Sem sessão salva → pede login manual
                         else -> {
                             Column(
                                 modifier = Modifier.fillMaxSize().padding(24.dp),

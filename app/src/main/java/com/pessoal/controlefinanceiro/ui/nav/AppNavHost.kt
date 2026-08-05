@@ -16,6 +16,7 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.*
 import androidx.navigation.navArgument
 import com.pessoal.controlefinanceiro.data.SheetsRepository
+import com.pessoal.controlefinanceiro.ui.comum.ConteudoComConexao
 import com.pessoal.controlefinanceiro.ui.lancamento.LancamentoScreen
 import com.pessoal.controlefinanceiro.ui.lista.ListaLancamentosScreen
 import com.pessoal.controlefinanceiro.ui.resumo.ResumoScreen
@@ -81,18 +82,24 @@ fun AppNavHost(repository: SheetsRepository) {
                 .consumeWindowInsets(paddingInterno)
         ) {
             composable(Rotas.LANCAMENTO) {
-                LancamentoScreen(repository = repository)
+                ConteudoComConexao {
+                    LancamentoScreen(repository = repository)
+                }
             }
 
             composable(Rotas.LISTA) {
-                ListaLancamentosScreen(
-                    repository = repository,
-                    aoEditar = { linha -> navController.navigate("${Rotas.LANCAMENTO}?linha=$linha") }
-                )
+                ConteudoComConexao {
+                    ListaLancamentosScreen(
+                        repository = repository,
+                        aoEditar = { linha -> navController.navigate("${Rotas.LANCAMENTO}?linha=$linha") }
+                    )
+                }
             }
 
             composable(Rotas.RESUMO) {
-                ResumoScreen(repository = repository)
+                ConteudoComConexao {
+                    ResumoScreen(repository = repository)
+                }
             }
 
             // Rota de edição: mesma tela de Lançamento, mas recebendo a linha
@@ -105,11 +112,13 @@ fun AppNavHost(repository: SheetsRepository) {
                 })
             ) { backStackEntry ->
                 val linha = backStackEntry.arguments?.getInt("linha") ?: -1
-                LancamentoScreen(
-                    repository = repository,
-                    linhaEdicao = if (linha == -1) null else linha,
-                    aoSalvarComSucesso = { navController.popBackStack() }
-                )
+                ConteudoComConexao {
+                    LancamentoScreen(
+                        repository = repository,
+                        linhaEdicao = if (linha == -1) null else linha,
+                        aoSalvarComSucesso = { navController.popBackStack() }
+                    )
+                }
             }
         }
     }

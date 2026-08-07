@@ -134,7 +134,7 @@ fun ResumoMensalScreen(repository: SheetsRepository, aoEditar: (Int) -> Unit) {
     }
 
     Column(modifier = Modifier.fillMaxSize().statusBarsPadding().padding(16.dp)) {
-        Text("Lançamentos", style = MaterialTheme.typography.headlineSmall)
+        Text("Resumo Mensal", style = MaterialTheme.typography.headlineSmall)
         Spacer(modifier = Modifier.height(12.dp))
 
         // Filtro Mês/Ano

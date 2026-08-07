@@ -89,7 +89,7 @@ fun ResumoAnualScreen(repository: SheetsRepository) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("Resumo", style = MaterialTheme.typography.headlineSmall)
+        Text("Resumo Anual", style = MaterialTheme.typography.headlineSmall)
 
         // Seletor de ano — só mostra anos que existem na planilha
         ExposedDropdownMenuBox(expanded = anoExpandido, onExpandedChange = { anoExpandido = it }) {

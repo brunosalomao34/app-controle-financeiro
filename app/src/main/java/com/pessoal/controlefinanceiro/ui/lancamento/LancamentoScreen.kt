@@ -123,15 +123,13 @@ fun LancamentoScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .statusBarsPadding()          // não fica colado na barra de notificação
-            .imePadding()                 // ajusta o conteúdo quando o teclado abre
+            .statusBarsPadding()
+            .imePadding()
             .pointerInput(Unit) {
-                // tocar fora de qualquer campo tira o foco e fecha o teclado
                 detectTapGestures(onTap = { focusManager.clearFocus() })
             }
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp)
-            .padding(top = 24.dp, bottom = 16.dp),
+            .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(

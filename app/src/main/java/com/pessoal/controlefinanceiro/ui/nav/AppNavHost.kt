@@ -1,5 +1,8 @@
 package com.pessoal.controlefinanceiro.ui.nav
 
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -11,15 +14,16 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextAlign
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.*
 import androidx.navigation.navArgument
 import com.pessoal.controlefinanceiro.data.SheetsRepository
 import com.pessoal.controlefinanceiro.ui.comum.ConteudoComConexao
-import com.pessoal.controlefinanceiro.ui.lancamento.LancamentoScreen
-import com.pessoal.controlefinanceiro.ui.lista.ListaLancamentosScreen
-import com.pessoal.controlefinanceiro.ui.resumo.ResumoScreen
+import com.pessoal.controlefinanceiro.ui.lancamento.NovoLancamentoScreen
+import com.pessoal.controlefinanceiro.ui.resumomensal.ResumoMensalScreen
+import com.pessoal.controlefinanceiro.ui.resumoanual.ResumoAnualScreen
 
 /** Nomes das rotas de navegação usadas no app. */
 object Rotas {
@@ -30,10 +34,11 @@ object Rotas {
 
 private data class ItemMenu(val rota: String, val label: String, val icone: ImageVector)
 
+// Rótulos exibidos na bottom navigation, abaixo de cada ícone
 private val itensMenu = listOf(
-    ItemMenu(Rotas.LANCAMENTO, "Lançar", Icons.Default.Add),
-    ItemMenu(Rotas.LISTA, "Lista", Icons.Default.List),
-    ItemMenu(Rotas.RESUMO, "Resumo", Icons.Default.PieChart)
+    ItemMenu(Rotas.LANCAMENTO, "Novo Lançamento", Icons.Default.Add),
+    ItemMenu(Rotas.LISTA, "Resumo Mensal", Icons.Default.List),
+    ItemMenu(Rotas.RESUMO, "Resumo Anual", Icons.Default.PieChart)
 )
 
 /**
@@ -55,8 +60,6 @@ fun AppNavHost(repository: SheetsRepository) {
                     NavigationBarItem(
                         selected = rotaAtual == item.rota,
                         onClick = {
-                            // Navegação direta: limpa a pilha até a tela inicial
-                            // e vai reto pra aba clicada, sem restaurar estado antigo
                             navController.navigate(item.rota) {
                                 popUpTo(navController.graph.findStartDestination().id) {
                                     inclusive = false
@@ -65,7 +68,16 @@ fun AppNavHost(repository: SheetsRepository) {
                             }
                         },
                         icon = { Icon(item.icone, contentDescription = item.label) },
-                        label = { Text(item.label) }
+                        label = {
+                            // Quebra o rótulo em 2 linhas: primeira palavra em cima, resto embaixo
+                            val (primeiraPalavra, resto) = item.label.split(" ", limit = 2)
+                                .let { it[0] to it.getOrElse(1) { "" } }
+                            Text(
+                                text = "$primeiraPalavra\n$resto",
+                                textAlign = TextAlign.Center,
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
                     )
                 }
             }
@@ -77,19 +89,21 @@ fun AppNavHost(repository: SheetsRepository) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingInterno)
-                // libera as telas filhas pra tratar seus próprios insets de teclado
-                // (necessário pra imePadding() funcionar certo dentro do Scaffold)
-                .consumeWindowInsets(paddingInterno)
+                .consumeWindowInsets(paddingInterno),
+            enterTransition = { fadeIn(animationSpec = tween(300)) },
+            exitTransition = { fadeOut(animationSpec = tween(300)) },
+            popEnterTransition = { fadeIn(animationSpec = tween(300)) },
+            popExitTransition = { fadeOut(animationSpec = tween(300)) }
         ) {
             composable(Rotas.LANCAMENTO) {
                 ConteudoComConexao {
-                    LancamentoScreen(repository = repository)
+                    NovoLancamentoScreen(repository = repository)
                 }
             }
 
             composable(Rotas.LISTA) {
                 ConteudoComConexao {
-                    ListaLancamentosScreen(
+                    ResumoMensalScreen(
                         repository = repository,
                         aoEditar = { linha -> navController.navigate("${Rotas.LANCAMENTO}?linha=$linha") }
                     )
@@ -98,7 +112,7 @@ fun AppNavHost(repository: SheetsRepository) {
 
             composable(Rotas.RESUMO) {
                 ConteudoComConexao {
-                    ResumoScreen(repository = repository)
+                    ResumoAnualScreen(repository = repository)
                 }
             }
 
@@ -113,7 +127,7 @@ fun AppNavHost(repository: SheetsRepository) {
             ) { backStackEntry ->
                 val linha = backStackEntry.arguments?.getInt("linha") ?: -1
                 ConteudoComConexao {
-                    LancamentoScreen(
+                    NovoLancamentoScreen(
                         repository = repository,
                         linhaEdicao = if (linha == -1) null else linha,
                         aoSalvarComSucesso = { navController.popBackStack() }

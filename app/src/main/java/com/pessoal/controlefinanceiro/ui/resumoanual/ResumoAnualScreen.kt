@@ -1,4 +1,4 @@
-package com.pessoal.controlefinanceiro.ui.resumo
+package com.pessoal.controlefinanceiro.ui.resumoanual
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -45,7 +45,7 @@ private val ALTURA_MAXIMA_DROPDOWN = 240.dp
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ResumoScreen(repository: SheetsRepository) {
+fun ResumoAnualScreen(repository: SheetsRepository) {
     val formatoMoeda = remember { NumberFormat.getCurrencyInstance(Locale("pt", "BR")) }
     val modelProducer = remember { CartesianChartModelProducer() }
 

@@ -1,4 +1,4 @@
-package com.pessoal.controlefinanceiro.ui.lista
+package com.pessoal.controlefinanceiro.ui.resumomensal
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -56,7 +56,7 @@ private data class TotalFormaPagamento(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ListaLancamentosScreen(repository: SheetsRepository, aoEditar: (Int) -> Unit) {
+fun ResumoMensalScreen(repository: SheetsRepository, aoEditar: (Int) -> Unit) {
     val formatoMoeda = remember { NumberFormat.getCurrencyInstance(Locale("pt", "BR")) }
 
     var todosLancamentos by remember { mutableStateOf<List<Lancamento>>(emptyList()) }

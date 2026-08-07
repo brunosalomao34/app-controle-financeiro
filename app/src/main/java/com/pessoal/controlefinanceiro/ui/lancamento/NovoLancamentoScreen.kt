@@ -48,7 +48,7 @@ private val ALTURA_MAXIMA_DROPDOWN = 240.dp
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LancamentoScreen(
+fun NovoLancamentoScreen(
     repository: SheetsRepository,
     linhaEdicao: Int? = null,
     aoSalvarComSucesso: () -> Unit = {}

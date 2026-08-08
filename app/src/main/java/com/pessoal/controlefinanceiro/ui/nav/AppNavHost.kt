@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.PieChart
+import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -22,12 +23,14 @@ import androidx.navigation.navArgument
 import com.pessoal.controlefinanceiro.data.SheetsRepository
 import com.pessoal.controlefinanceiro.ui.comum.ConteudoComConexao
 import com.pessoal.controlefinanceiro.ui.lancamento.NovoLancamentoScreen
+import com.pessoal.controlefinanceiro.ui.mensalidade.MensalidadeScreen
 import com.pessoal.controlefinanceiro.ui.resumomensal.ResumoMensalScreen
 import com.pessoal.controlefinanceiro.ui.resumoanual.ResumoAnualScreen
 
 /** Nomes das rotas de navegação usadas no app. */
 object Rotas {
     const val LANCAMENTO = "lancamento"
+    const val MENSALIDADE = "mensalidade"
     const val LISTA = "lista"
     const val RESUMO = "resumo"
 }
@@ -37,13 +40,14 @@ private data class ItemMenu(val rota: String, val label: String, val icone: Imag
 // Rótulos exibidos na bottom navigation, abaixo de cada ícone
 private val itensMenu = listOf(
     ItemMenu(Rotas.LANCAMENTO, "Novo Lançamento", Icons.Default.Add),
+    ItemMenu(Rotas.MENSALIDADE, "Mensalidades", Icons.Default.Repeat),
     ItemMenu(Rotas.LISTA, "Resumo Mensal", Icons.Default.List),
     ItemMenu(Rotas.RESUMO, "Resumo Anual", Icons.Default.PieChart)
 )
 
 /**
- * Estrutura de navegação do app: bottom navigation com 3 abas
- * (Lançar, Lista, Resumo) + rota extra de edição de lançamento
+ * Estrutura de navegação do app: bottom navigation com 4 abas
+ * (Lançar, Mensalidade, Lista, Resumo) + rota extra de edição de lançamento
  * (acessada a partir da Lista, não aparece na bottom bar).
  */
 @Composable
@@ -69,11 +73,13 @@ fun AppNavHost(repository: SheetsRepository) {
                         },
                         icon = { Icon(item.icone, contentDescription = item.label) },
                         label = {
-                            // Quebra o rótulo em 2 linhas: primeira palavra em cima, resto embaixo
-                            val (primeiraPalavra, resto) = item.label.split(" ", limit = 2)
-                                .let { it[0] to it.getOrElse(1) { "" } }
+                            // Quebra o rótulo em 2 linhas quando tem 2 palavras (primeira em cima,
+                            // resto embaixo); rótulos de 1 palavra só (como "Mensalidades") ficam
+                            // numa linha só, sem deixar uma segunda linha em branco.
+                            val partes = item.label.split(" ", limit = 2)
+                            val texto = if (partes.size > 1) "${partes[0]}\n${partes[1]}" else partes[0]
                             Text(
-                                text = "$primeiraPalavra\n$resto",
+                                text = texto,
                                 textAlign = TextAlign.Center,
                                 style = MaterialTheme.typography.labelSmall
                             )
@@ -98,6 +104,12 @@ fun AppNavHost(repository: SheetsRepository) {
             composable(Rotas.LANCAMENTO) {
                 ConteudoComConexao {
                     NovoLancamentoScreen(repository = repository)
+                }
+            }
+
+            composable(Rotas.MENSALIDADE) {
+                ConteudoComConexao {
+                    MensalidadeScreen(repository = repository)
                 }
             }
 

@@ -1,5 +1,7 @@
 package com.pessoal.controlefinanceiro.ui.resumomensal
 
+import android.widget.Toast
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -14,13 +16,17 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.pessoal.controlefinanceiro.data.SheetsRepository
 import com.pessoal.controlefinanceiro.model.Lancamento
+import com.pessoal.controlefinanceiro.model.Mensalidade
+import com.pessoal.controlefinanceiro.ui.mensalidade.DialogoEditarMensalidade
 import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.util.Calendar
@@ -52,16 +58,19 @@ private data class TotalFormaPagamento(
  * Forma de Pagamento. Lançamentos parcelados aparecem em todos os meses
  * cobertos pela parcela (usando as colunas auxiliares K "Mês Início" e
  * L "Mês Fim" da planilha). Mostra também uma tabela com Entradas/Saídas/
- * Saldo do mês, quebrada por forma de pagamento.
+ * Saldo do mês, quebrada por forma de pagamento. Mensalidades aparecem
+ * sempre no início da lista, antes dos demais lançamentos.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ResumoMensalScreen(repository: SheetsRepository, aoEditar: (Int) -> Unit) {
+    val context = LocalContext.current
     val formatoMoeda = remember { NumberFormat.getCurrencyInstance(Locale("pt", "BR")) }
 
     var todosLancamentos by remember { mutableStateOf<List<Lancamento>>(emptyList()) }
     var carregando by remember { mutableStateOf(true) }
     var lancamentoParaExcluir by remember { mutableStateOf<Lancamento?>(null) }
+    var mensalidadeParaEditar by remember { mutableStateOf<Mensalidade?>(null) }
 
     val calendarioAtual = remember { Calendar.getInstance() }
     var mesSelecionado by remember { mutableStateOf(MESES[calendarioAtual.get(Calendar.MONTH)]) }
@@ -75,7 +84,7 @@ fun ResumoMensalScreen(repository: SheetsRepository, aoEditar: (Int) -> Unit) {
     var formaPagamentoFiltroExpandido by remember { mutableStateOf(false) }
 
     // Controla se a tabela de totais por forma de pagamento está expandida
-    var tabelaExpandida by remember { mutableStateOf(true) }
+    var tabelaExpandida by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
 
@@ -110,12 +119,17 @@ fun ResumoMensalScreen(repository: SheetsRepository, aoEditar: (Int) -> Unit) {
     val indiceMesConsultado = anoSelecionado * 12 + (MESES.indexOf(mesSelecionado) + 1)
 
     // Filtra pelo mês/ano selecionado (via intervalo de parcelas K/L) e,
-    // se escolhido, também pela forma de pagamento
+    // se escolhido, também pela forma de pagamento. Mensalidades (categoria
+    // "Mensalidade") vêm sempre primeiro; dentro de cada grupo, ordena pela
+    // ordem de lançamento (linha na planilha).
     val lancamentosFiltrados = remember(todosLancamentos, mesSelecionado, anoSelecionado, formaPagamentoFiltro) {
         todosLancamentos
             .filter { indiceMesConsultado in it.mesInicioIndex..it.mesFimIndex }
             .filter { formaPagamentoFiltro == "Todos" || it.formaPagamento == formaPagamentoFiltro }
-            .sortedBy { it.linha } // ordem de lançamento
+            .sortedWith(
+                compareByDescending<Lancamento> { it.categoria == "Mensalidade" }
+                    .thenBy { it.linha }
+            )
     }
 
     // Tabela: uma linha fixa pra cada forma de pagamento (Dinheiro, Pix, Boleto,
@@ -254,7 +268,25 @@ fun ResumoMensalScreen(repository: SheetsRepository, aoEditar: (Int) -> Unit) {
                             mesSelecionado = mesSelecionado,
                             anoSelecionado = anoSelecionado,
                             formatoMoeda = formatoMoeda,
-                            aoEditar = { aoEditar(lancamento.linha) },
+                            aoEditar = {
+                                // Mensalidades abrem o diálogo de edição próprio delas
+                                // (com o seletor "a partir de qual mês"); lançamentos
+                                // normais navegam pra Tela de Lançamento, como sempre.
+                                if (lancamento.categoria == "Mensalidade" && lancamento.idMensalidade != null) {
+                                    mensalidadeParaEditar = Mensalidade(
+                                        idMensalidade = lancamento.idMensalidade,
+                                        linha = lancamento.linha,
+                                        nome = lancamento.descricao,
+                                        valorMensal = lancamento.valorParcela,
+                                        formaPagamento = lancamento.formaPagamento,
+                                        observacoes = lancamento.observacoes,
+                                        mesInicioIndex = lancamento.mesInicioIndex,
+                                        mesFimIndex = lancamento.mesFimIndex
+                                    )
+                                } else {
+                                    aoEditar(lancamento.linha)
+                                }
+                            },
                             aoExcluir = { lancamentoParaExcluir = lancamento }
                         )
                     }
@@ -263,26 +295,71 @@ fun ResumoMensalScreen(repository: SheetsRepository, aoEditar: (Int) -> Unit) {
         }
     }
 
-    // Diálogo de confirmação de exclusão — avisa quando o lançamento é parcelado
+    // Diálogo de edição de mensalidade — mesmo componente usado na Tela de Mensalidades
+    mensalidadeParaEditar?.let { mensalidade ->
+        DialogoEditarMensalidade(
+            mensalidade = mensalidade,
+            onDismiss = { mensalidadeParaEditar = null },
+            onConfirmar = { novoNome, novoValor, novaForma, novasObservacoes, mesEdicao, anoEdicao ->
+                scope.launch {
+                    try {
+                        repository.editarMensalidade(
+                            mensalidade, novoNome, novoValor, novaForma, novasObservacoes, mesEdicao, anoEdicao
+                        )
+                        Toast.makeText(context, "Mensalidade atualizada com sucesso!", Toast.LENGTH_SHORT).show()
+                        mensalidadeParaEditar = null
+                        recarregar()
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Erro ao atualizar: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        )
+    }
+
+// Diálogo de confirmação de exclusão — texto e ação mudam conforme o item
+    // seja uma mensalidade (usa excluirMensalidade, que também limpa o ID da
+    // coluna N) ou um lançamento comum (usa excluirLancamento, avisando quando
+    // parcelado).
     lancamentoParaExcluir?.let { lancamento ->
+        val ehMensalidade = lancamento.categoria == "Mensalidade" && lancamento.idMensalidade != null
+
         AlertDialog(
             onDismissRequest = { lancamentoParaExcluir = null },
-            title = { Text("Remover lançamento?") },
+            title = { Text(if (ehMensalidade) "Remover mensalidade?" else "Remover lançamento?") },
             text = {
-                if (lancamento.qtdParcelas > 1) {
-                    Text(
+                when {
+                    ehMensalidade -> Text(
+                        "\"${lancamento.descricao}\" deixará de ser lançada a partir de agora. " +
+                                "Os meses já passados continuam registrados normalmente."
+                    )
+                    lancamento.qtdParcelas > 1 -> Text(
                         "\"${lancamento.descricao}\" está parcelado em ${lancamento.qtdParcelas}x. " +
                                 "Remover vai excluir TODAS as ${lancamento.qtdParcelas} parcelas, não só a deste mês. " +
                                 "Essa ação não pode ser desfeita."
                     )
-                } else {
-                    Text("\"${lancamento.descricao}\" será removido. Essa ação não pode ser desfeita.")
+                    else -> Text("\"${lancamento.descricao}\" será removido. Essa ação não pode ser desfeita.")
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
                     scope.launch {
-                        repository.excluirLancamento(lancamento.linha)
+                        if (ehMensalidade) {
+                            repository.excluirMensalidade(
+                                Mensalidade(
+                                    idMensalidade = lancamento.idMensalidade!!,
+                                    linha = lancamento.linha,
+                                    nome = lancamento.descricao,
+                                    valorMensal = lancamento.valorParcela,
+                                    formaPagamento = lancamento.formaPagamento,
+                                    observacoes = lancamento.observacoes,
+                                    mesInicioIndex = lancamento.mesInicioIndex,
+                                    mesFimIndex = lancamento.mesFimIndex
+                                )
+                            )
+                        } else {
+                            repository.excluirLancamento(lancamento.linha)
+                        }
                         lancamentoParaExcluir = null
                         recarregar()
                     }
@@ -307,8 +384,12 @@ private fun CardTabelaPorFormaPagamento(
     expandida: Boolean,
     aoAlternarExpandida: () -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = aoAlternarExpandida)
+    ) {
+        Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp)) {
             // Cabeçalho do card: título + botão de expandir/recolher
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -388,6 +469,15 @@ private fun ItemLancamento(
                     "${lancamento.categoria} • ${lancamento.data} • ${lancamento.formaPagamento}",
                     style = MaterialTheme.typography.bodySmall
                 )
+                if (lancamento.observacoes.isNotBlank()) {
+                    Text(
+                        lancamento.observacoes,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
 
                 val corValor = if (lancamento.tipo == "Entrada") Color(0xFF2E7D32) else Color(0xFFC62828)
 

@@ -1,0 +1,526 @@
+package com.pessoal.controlefinanceiro.ui.mensalidade
+
+import android.widget.Toast
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowCircleDown
+import androidx.compose.material.icons.filled.ArrowCircleUp
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.pessoal.controlefinanceiro.data.SheetsRepository
+import com.pessoal.controlefinanceiro.model.Mensalidade
+import kotlinx.coroutines.launch
+import java.text.NumberFormat
+import java.util.Calendar
+import java.util.Locale
+
+// Opções fixas de forma de pagamento (mesmas da Tela de Lançamento)
+private val FORMAS_PAGAMENTO = listOf("Dinheiro", "Pix", "Boleto", "Débito", "Crédito")
+
+// Nomes completos dos meses, usados nos rótulos de período e no seletor "a partir de qual mês"
+private val NOMES_MESES = listOf(
+    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+)
+
+// Altura máxima dos menus suspensos: ~5 itens visíveis, com scroll pro resto
+private val ALTURA_MAXIMA_DROPDOWN = 240.dp
+
+/**
+ * Tela de Mensalidades — cadastra um valor fixo mensal (ex: academia, streaming)
+ * que se repete automaticamente do mês atual até dezembro do ano corrente,
+ * reaproveitando o mesmo mecanismo de parcelas usado nas compras parceladas.
+ * Mostra também a lista de mensalidades ativas, com opção de editar (a partir
+ * de qual mês vale a alteração) e excluir.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MensalidadeScreen(repository: SheetsRepository) {
+    val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
+    val formatoMoeda = remember { NumberFormat.getCurrencyInstance(Locale("pt", "BR")) }
+    val scope = rememberCoroutineScope()
+
+    // Controla se o formulário "Nova Mensalidade" está expandido
+    var formularioExpandido by remember { mutableStateOf(false) }
+
+    // Campos do formulário de nova mensalidade
+    var nome by remember { mutableStateOf("") }
+    var valorDigitos by remember { mutableStateOf("") }
+    var valorCampo by remember { mutableStateOf(TextFieldValue(formatarValorMonetario(""))) }
+    var formaPagamentoExpandida by remember { mutableStateOf(false) }
+    var formaPagamentoSelecionada by remember { mutableStateOf("") }
+    var salvando by remember { mutableStateOf(false) }
+    var observacoes by remember { mutableStateOf("") }
+
+    // Lista de mensalidades ativas
+    var mensalidades by remember { mutableStateOf<List<Mensalidade>>(emptyList()) }
+    var carregando by remember { mutableStateOf(true) }
+    var mensalidadeParaEditar by remember { mutableStateOf<Mensalidade?>(null) }
+    var mensalidadeParaExcluir by remember { mutableStateOf<Mensalidade?>(null) }
+
+    suspend fun recarregar() {
+        carregando = true
+        mensalidades = repository.listarMensalidadesAtivas()
+        carregando = false
+    }
+
+    LaunchedEffect(Unit) { recarregar() }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .imePadding()
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = { focusManager.clearFocus() })
+            }
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("Mensalidades", style = MaterialTheme.typography.headlineSmall)
+
+        // ── Formulário de nova mensalidade — clicável pra abrir/fechar ──
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { formularioExpandido = !formularioExpandido }
+        ) {
+            Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Nova Mensalidade", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    IconButton(onClick = { formularioExpandido = !formularioExpandido }) {
+                        Icon(
+                            imageVector = if (formularioExpandido) Icons.Filled.ArrowCircleUp else Icons.Filled.ArrowCircleDown,
+                            contentDescription = if (formularioExpandido) "Recolher formulário" else "Expandir formulário"
+                        )
+                    }
+                }
+
+                if (formularioExpandido) {
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    OutlinedTextField(
+                        value = nome,
+                        onValueChange = { nome = it.replace("\n", "") },
+                        label = { Text("Nome") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(
+                            capitalization = KeyboardCapitalization.Sentences,
+                            imeAction = ImeAction.Next
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = valorCampo,
+                        onValueChange = { novoValor ->
+                            val apenasDigitos = novoValor.text.filter { it.isDigit() }.take(9)
+                            valorDigitos = apenasDigitos
+                            val textoFormatado = formatarValorMonetario(apenasDigitos)
+                            valorCampo = TextFieldValue(text = textoFormatado, selection = TextRange(textoFormatado.length))
+                        },
+                        label = { Text("Valor Mensal") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    ExposedDropdownMenuBox(
+                        expanded = formaPagamentoExpandida,
+                        onExpandedChange = { formaPagamentoExpandida = it }
+                    ) {
+                        OutlinedTextField(
+                            value = formaPagamentoSelecionada,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Forma de Pagamento") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = formaPagamentoExpandida) },
+                            modifier = Modifier.fillMaxWidth().menuAnchor()
+                        )
+                        ExposedDropdownMenu(
+                            expanded = formaPagamentoExpandida,
+                            onDismissRequest = { formaPagamentoExpandida = false },
+                            modifier = Modifier.heightIn(max = ALTURA_MAXIMA_DROPDOWN)
+                        ) {
+                            FORMAS_PAGAMENTO.forEach { forma ->
+                                DropdownMenuItem(text = { Text(forma) }, onClick = {
+                                    formaPagamentoSelecionada = forma
+                                    formaPagamentoExpandida = false
+                                })
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = observacoes,
+                        onValueChange = { observacoes = it.replace("\n", "") },
+                        label = { Text("Observações") },
+                        singleLine = false,
+                        minLines = 1,
+                        keyboardOptions = KeyboardOptions(
+                            capitalization = KeyboardCapitalization.Sentences,
+                            imeAction = ImeAction.Done
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Button(
+                        enabled = !salvando && nome.isNotBlank() &&
+                                formaPagamentoSelecionada.isNotBlank() && valorDigitos.isNotBlank(),
+                        onClick = {
+                            salvando = true
+                            scope.launch {
+                                try {
+                                    val valorMensal = (valorDigitos.toLongOrNull() ?: 0L) / 100.0
+                                    repository.criarMensalidade(nome, valorMensal, formaPagamentoSelecionada, observacoes)
+                                    Toast.makeText(context, "Mensalidade salva com sucesso!", Toast.LENGTH_SHORT).show()
+                                    nome = ""
+                                    valorDigitos = ""
+                                    valorCampo = TextFieldValue(formatarValorMonetario(""))
+                                    formaPagamentoSelecionada = ""
+                                    observacoes = ""
+                                    recarregar()
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Erro ao salvar: ${e.message}", Toast.LENGTH_LONG).show()
+                                } finally {
+                                    salvando = false
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(if (salvando) "Salvando..." else "Salvar Mensalidade")
+                    }
+                }
+            }
+        }
+
+        HorizontalDivider(thickness = 1.dp)
+
+        // ── Lista de mensalidades ativas ──
+        Text("Mensalidades Ativas", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+
+        when {
+            carregando -> {
+                Box(modifier = Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            }
+            mensalidades.isEmpty() -> {
+                Text("Nenhuma mensalidade ativa no momento.")
+            }
+            else -> {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.heightIn(max = 2000.dp) // dentro de Column com scroll, evita LazyColumn infinita
+                ) {
+                    items(mensalidades, key = { it.idMensalidade }) { mensalidade ->
+                        ItemMensalidade(
+                            mensalidade = mensalidade,
+                            formatoMoeda = formatoMoeda,
+                            aoEditar = { mensalidadeParaEditar = mensalidade },
+                            aoExcluir = { mensalidadeParaExcluir = mensalidade }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    // Diálogo de edição — permite escolher a partir de qual mês vale a mudança
+    mensalidadeParaEditar?.let { mensalidade ->
+        DialogoEditarMensalidade(
+            mensalidade = mensalidade,
+            onDismiss = { mensalidadeParaEditar = null },
+            onConfirmar = { novoNome, novoValor, novaForma, novasObservacoes, mesEdicao, anoEdicao ->
+                scope.launch {
+                    try {
+                        repository.editarMensalidade(
+                            mensalidade, novoNome, novoValor, novaForma, novasObservacoes, mesEdicao, anoEdicao
+                        )
+                        Toast.makeText(context, "Mensalidade atualizada com sucesso!", Toast.LENGTH_SHORT).show()
+                        mensalidadeParaEditar = null
+                        recarregar()
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Erro ao atualizar: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        )
+    }
+
+    // Diálogo de confirmação de exclusão
+    mensalidadeParaExcluir?.let { mensalidade ->
+        AlertDialog(
+            onDismissRequest = { mensalidadeParaExcluir = null },
+            title = { Text("Remover mensalidade?") },
+            text = {
+                Text(
+                    "\"${mensalidade.nome}\" deixará de ser lançada a partir de agora. " +
+                            "Os meses já passados continuam registrados normalmente."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch {
+                        repository.excluirMensalidade(mensalidade)
+                        mensalidadeParaExcluir = null
+                        Toast.makeText(context, "Mensalidade removida.", Toast.LENGTH_SHORT).show()
+                        recarregar()
+                    }
+                }) { Text("Remover") }
+            },
+            dismissButton = {
+                TextButton(onClick = { mensalidadeParaExcluir = null }) { Text("Cancelar") }
+            }
+        )
+    }
+}
+
+/** Card de uma mensalidade ativa, com período de vigência e botões de editar/remover. */
+@Composable
+private fun ItemMensalidade(
+    mensalidade: Mensalidade,
+    formatoMoeda: NumberFormat,
+    aoEditar: () -> Unit,
+    aoExcluir: () -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.padding(12.dp).fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(mensalidade.nome, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "${formatoMoeda.format(mensalidade.valorMensal)}/mês • ${mensalidade.formaPagamento}",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                if (mensalidade.observacoes.isNotBlank()) {
+                    Text(
+                        mensalidade.observacoes,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Text(
+                    "Vigente: ${formatarPeriodo(mensalidade.mesInicioIndex, mensalidade.mesFimIndex)}",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            IconButton(onClick = aoEditar) {
+                Icon(Icons.Default.Edit, contentDescription = "Editar")
+            }
+            IconButton(onClick = aoExcluir) {
+                Icon(Icons.Default.Delete, contentDescription = "Remover")
+            }
+        }
+    }
+}
+
+/**
+ * Diálogo de edição de mensalidade: permite trocar nome/valor/forma de
+ * pagamento/observações e escolher a partir de qual mês essa mudança passa
+ * a valer (do mês atual até dezembro do ano vigente).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DialogoEditarMensalidade(
+    mensalidade: Mensalidade,
+    onDismiss: () -> Unit,
+    onConfirmar: (novoNome: String, novoValor: Double, novaForma: String, novasObservacoes: String, mesEdicao: Int, anoEdicao: Int) -> Unit
+) {
+    var nome by remember { mutableStateOf(mensalidade.nome) }
+    var valorDigitos by remember { mutableStateOf((mensalidade.valorMensal * 100).toLong().toString()) }
+    var valorCampo by remember {
+        mutableStateOf(
+            TextFieldValue(
+                formatarValorMonetario(valorDigitos),
+                selection = TextRange(formatarValorMonetario(valorDigitos).length)
+            )
+        )
+    }
+    var observacoes by remember { mutableStateOf(mensalidade.observacoes) }
+    var formaPagamentoExpandida by remember { mutableStateOf(false) }
+    var formaPagamentoSelecionada by remember { mutableStateOf(mensalidade.formaPagamento) }
+
+    // Opções de "a partir de qual mês": do mês atual (não dá pra editar o passado)
+    // até dezembro do ano em que o segmento termina
+    val calendarioAtual = remember { Calendar.getInstance() }
+    val indiceMesAtual = calendarioAtual.get(Calendar.YEAR) * 12 + (calendarioAtual.get(Calendar.MONTH) + 1)
+    val indiceInicial = maxOf(indiceMesAtual, mensalidade.mesInicioIndex)
+
+    val opcoesMes = remember {
+        (indiceInicial..mensalidade.mesFimIndex).map { indice ->
+            val ano = (indice - 1) / 12
+            val mes = indice - ano * 12
+            Triple(mes, ano, "${NOMES_MESES[mes - 1]}/$ano")
+        }
+    }
+    var opcaoSelecionada by remember { mutableStateOf(opcoesMes.firstOrNull()) }
+    var mesEdicaoExpandido by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Editar Mensalidade") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = nome,
+                    onValueChange = { nome = it.replace("\n", "") },
+                    label = { Text("Nome") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = valorCampo,
+                    onValueChange = { novoValor ->
+                        val apenasDigitos = novoValor.text.filter { it.isDigit() }.take(9)
+                        valorDigitos = apenasDigitos
+                        val textoFormatado = formatarValorMonetario(apenasDigitos)
+                        valorCampo = TextFieldValue(text = textoFormatado, selection = TextRange(textoFormatado.length))
+                    },
+                    label = { Text("Valor Mensal") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                ExposedDropdownMenuBox(
+                    expanded = formaPagamentoExpandida,
+                    onExpandedChange = { formaPagamentoExpandida = it }
+                ) {
+                    OutlinedTextField(
+                        value = formaPagamentoSelecionada,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Forma de Pagamento") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = formaPagamentoExpandida) },
+                        modifier = Modifier.fillMaxWidth().menuAnchor()
+                    )
+                    ExposedDropdownMenu(
+                        expanded = formaPagamentoExpandida,
+                        onDismissRequest = { formaPagamentoExpandida = false },
+                        modifier = Modifier.heightIn(max = ALTURA_MAXIMA_DROPDOWN)
+                    ) {
+                        FORMAS_PAGAMENTO.forEach { forma ->
+                            DropdownMenuItem(text = { Text(forma) }, onClick = {
+                                formaPagamentoSelecionada = forma
+                                formaPagamentoExpandida = false
+                            })
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = observacoes,
+                    onValueChange = { observacoes = it.replace("\n", "") },
+                    label = { Text("Observações") },
+                    singleLine = false,
+                    minLines = 1,
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                ExposedDropdownMenuBox(
+                    expanded = mesEdicaoExpandido,
+                    onExpandedChange = { mesEdicaoExpandido = it }
+                ) {
+                    OutlinedTextField(
+                        value = opcaoSelecionada?.third.orEmpty(),
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("A partir de") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = mesEdicaoExpandido) },
+                        modifier = Modifier.fillMaxWidth().menuAnchor()
+                    )
+                    ExposedDropdownMenu(
+                        expanded = mesEdicaoExpandido,
+                        onDismissRequest = { mesEdicaoExpandido = false },
+                        modifier = Modifier.heightIn(max = ALTURA_MAXIMA_DROPDOWN)
+                    ) {
+                        opcoesMes.forEach { opcao ->
+                            DropdownMenuItem(text = { Text(opcao.third) }, onClick = {
+                                opcaoSelecionada = opcao
+                                mesEdicaoExpandido = false
+                            })
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = nome.isNotBlank() && formaPagamentoSelecionada.isNotBlank() &&
+                        valorDigitos.isNotBlank() && opcaoSelecionada != null,
+                onClick = {
+                    val (mes, ano, _) = opcaoSelecionada!!
+                    val valorMensal = (valorDigitos.toLongOrNull() ?: 0L) / 100.0
+                    onConfirmar(nome, valorMensal, formaPagamentoSelecionada, observacoes, mes, ano)
+                }
+            ) { Text("Salvar") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancelar") }
+        }
+    )
+}
+
+/** Formata "início-fim" de um período (índices ano*12+mês) como "Agosto/2026 até Dezembro/2026". */
+private fun formatarPeriodo(mesInicioIndex: Int, mesFimIndex: Int): String {
+    val anoInicio = (mesInicioIndex - 1) / 12
+    val mesInicio = mesInicioIndex - anoInicio * 12
+    val anoFim = (mesFimIndex - 1) / 12
+    val mesFim = mesFimIndex - anoFim * 12
+    return "${NOMES_MESES[mesInicio - 1]}/$anoInicio até ${NOMES_MESES[mesFim - 1]}/$anoFim"
+}
+
+/** Formata dígitos puros (representando centavos) como "R$ 1.234,56". */
+private fun formatarValorMonetario(digitos: String): String {
+    val valor = if (digitos.isEmpty()) 0L else digitos.toLong()
+    val reais = valor / 100
+    val centavos = valor % 100
+    val formatador = NumberFormat.getInstance(Locale("pt", "BR"))
+    return "R$ ${formatador.format(reais)},${centavos.toString().padStart(2, '0')}"
+}

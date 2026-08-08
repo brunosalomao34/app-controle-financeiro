@@ -10,6 +10,7 @@ import com.google.api.services.sheets.v4.SheetsScopes
 import com.google.api.services.sheets.v4.model.ValueRange
 import com.pessoal.controlefinanceiro.BuildConfig
 import com.pessoal.controlefinanceiro.model.Lancamento
+import com.pessoal.controlefinanceiro.model.Mensalidade
 import com.pessoal.controlefinanceiro.model.ResumoMes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -17,6 +18,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 
 /**
  * Camada de acesso à planilha do Google Sheets.
@@ -24,15 +26,21 @@ import java.util.Locale
  *
  * Colunas da aba "Lançamentos" (referência rápida):
  * A=Data | B=Descrição | C=Categoria | D=Tipo (fórmula, não editar)
- * E=Valor Total | F=Qtd. Parcelas | G=Mês/Ano | H=Observações
- * I=Parcelas aux | J=Valor Parcela aux | K=Mês Início aux | L=Mês Fim aux
- * (D e I-L são só leitura — nunca escrever nelas)
+ * E=Valor Total | F=Forma de Pagamento | G=Qtd. Parcelas | H=Mês/Ano | I=Observações
+ * J=Parcelas aux | K=Valor Parcela aux | L=Mês Início aux | M=Mês Fim aux
+ * N=ID Mensalidade (preenchido só em linhas geradas pela Tela de Mensalidades)
+ * (D e J-M são só leitura — nunca escrever nelas)
  */
 class SheetsRepository(context: Context, account: Account) {
 
     companion object {
         // ID da planilha vem do local.properties (não fica hardcoded no código-fonte)
         val SPREADSHEET_ID: String = BuildConfig.SPREADSHEET_ID
+
+        // Última linha considerada nas buscas/gravações. Se um dia a planilha
+        // ultrapassar isso, é só aumentar esse número (e estender as fórmulas
+        // ARRAYFORMULA na planilha até a mesma linha).
+        private const val ULTIMA_LINHA = 5000
     }
 
     private val credential = GoogleAccountCredential.usingOAuth2(
@@ -49,13 +57,21 @@ class SheetsRepository(context: Context, account: Account) {
     // que o usuário troca de tela.
     private var anosCache: List<Int>? = null
 
+    // Abreviações de mês usadas para montar o texto "jan/2026" gravado na coluna
+    // Mês/Ano — usado pelas funções de Mensalidade, que calculam o mês sozinhas
+    // (as telas de UI têm sua própria lista com nomes por extenso).
+    private val MESES_ABREVIADOS = listOf(
+        "jan", "fev", "mar", "abr", "mai", "jun",
+        "jul", "ago", "set", "out", "nov", "dez"
+    )
+
     /**
      * Descobre em qual linha da aba Lançamentos deve ser inserido o próximo
      * lançamento (primeira linha vazia a partir da linha 3).
      */
     suspend fun proximaLinhaVazia(): Int = withContext(Dispatchers.IO) {
         val response = sheetsService.spreadsheets().values()
-            .get(SPREADSHEET_ID, "Lançamentos!A3:A500")
+            .get(SPREADSHEET_ID, "Lançamentos!A3:A$ULTIMA_LINHA")
             .execute()
         val quantidadePreenchida = response.getValues()?.size ?: 0
         3 + quantidadePreenchida
@@ -146,7 +162,7 @@ class SheetsRepository(context: Context, account: Account) {
      */
     suspend fun listarLancamentos(): List<Lancamento> = withContext(Dispatchers.IO) {
         val response = sheetsService.spreadsheets().values()
-            .get(SPREADSHEET_ID, "Lançamentos!A3:M500")
+            .get(SPREADSHEET_ID, "Lançamentos!A3:N$ULTIMA_LINHA")
             .setValueRenderOption("UNFORMATTED_VALUE")
             .setDateTimeRenderOption("SERIAL_NUMBER")
             .execute()
@@ -176,7 +192,8 @@ class SheetsRepository(context: Context, account: Account) {
                 anoNumero = calendarioMesAno.get(Calendar.YEAR),
                 mesInicioIndex = (colunas.getOrNull(11) as? Number)?.toInt() ?: 0,      // L (aux)
                 mesFimIndex = (colunas.getOrNull(12) as? Number)?.toInt() ?: -1,        // M (aux)
-                observacoes = colunas.getOrNull(8)?.toString().orEmpty()                // I
+                observacoes = colunas.getOrNull(8)?.toString().orEmpty(),               // I
+                idMensalidade = colunas.getOrNull(13)?.toString()?.takeIf { it.isNotBlank() } // N
             )
         }
     }
@@ -232,6 +249,195 @@ class SheetsRepository(context: Context, account: Account) {
 
         anosCache = anos
         anos
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Mensalidades — reaproveitam o mecanismo de parcelas: uma
+    // mensalidade é uma linha só, com Qtd. Parcelas = meses restantes
+    // até dezembro e Valor Total = valor mensal x meses restantes.
+    // ─────────────────────────────────────────────────────────────
+
+    /**
+     * Cria uma nova mensalidade: lança uma única linha cobrindo do mês atual
+     * até dezembro do ano corrente. Gera um novo ID (coluna N) que identifica
+     * essa mensalidade para futuras edições/exclusões.
+     */
+    suspend fun criarMensalidade(
+        nome: String,
+        valorMensal: Double,
+        formaPagamento: String,
+        observacoes: String
+    ) = withContext(Dispatchers.IO) {
+        val calendarioAtual = Calendar.getInstance()
+        val mesAtual = calendarioAtual.get(Calendar.MONTH) + 1
+        val anoAtual = calendarioAtual.get(Calendar.YEAR)
+        val mesesRestantes = 13 - mesAtual // ex: lançada em agosto (8) -> 5 meses (ago a dez)
+
+        val linha = proximaLinhaVazia()
+        salvarSegmentoMensalidade(
+            linha = linha,
+            data = SimpleDateFormat("dd/MM/yyyy", Locale("pt", "BR")).format(Date()),
+            nome = nome,
+            valorTotal = valorMensal * mesesRestantes,
+            formaPagamento = formaPagamento,
+            qtdParcelas = mesesRestantes,
+            mesAno = "${MESES_ABREVIADOS[mesAtual - 1]}/$anoAtual",
+            observacoes = observacoes,
+            idMensalidade = UUID.randomUUID().toString()
+        )
+    }
+
+    /**
+     * Lista as mensalidades ativas hoje: agrupa os lançamentos da categoria
+     * "Mensalidade" por ID (coluna N) e retorna, de cada grupo, o segmento
+     * vigente (cujo intervalo Mês Início/Mês Fim cobre o mês atual em diante)
+     * — ignorando segmentos antigos deixados por edições passadas.
+     */
+    suspend fun listarMensalidadesAtivas(): List<Mensalidade> {
+        val calendarioAtual = Calendar.getInstance()
+        val indiceMesAtual = calendarioAtual.get(Calendar.YEAR) * 12 + (calendarioAtual.get(Calendar.MONTH) + 1)
+
+        return listarLancamentos()
+            .filter { it.categoria == "Mensalidade" && !it.idMensalidade.isNullOrBlank() }
+            .groupBy { it.idMensalidade!! }
+            .mapNotNull { (id, segmentos) ->
+                val segmentoVigente = segmentos
+                    .filter { it.mesFimIndex >= indiceMesAtual }
+                    .maxByOrNull { it.mesInicioIndex } // o mais recente entre os vigentes
+                    ?: return@mapNotNull null
+
+                Mensalidade(
+                    idMensalidade = id,
+                    linha = segmentoVigente.linha,
+                    nome = segmentoVigente.descricao,
+                    valorMensal = segmentoVigente.valorParcela,
+                    formaPagamento = segmentoVigente.formaPagamento,
+                    observacoes = segmentoVigente.observacoes,
+                    mesInicioIndex = segmentoVigente.mesInicioIndex,
+                    mesFimIndex = segmentoVigente.mesFimIndex
+                )
+            }
+    }
+
+    /**
+     * Edita uma mensalidade a partir de um mês/ano escolhido:
+     * - Se o mês escolhido é o próprio início do segmento vigente, só
+     *   sobrescreve essa linha com os novos dados.
+     * - Se for um mês no meio do intervalo, encurta o segmento atual
+     *   (mantendo os dados antigos até o mês anterior) e cria um novo
+     *   segmento a partir do mês escolhido, com os dados novos — os dois
+     *   segmentos compartilham o mesmo ID Mensalidade.
+     */
+    suspend fun editarMensalidade(
+        mensalidade: Mensalidade,
+        novoNome: String,
+        novoValorMensal: Double,
+        novaFormaPagamento: String,
+        novasObservacoes: String,
+        mesEdicao: Int,
+        anoEdicao: Int
+    ) {
+        val indiceMesEdicao = anoEdicao * 12 + mesEdicao
+        val mesAnoNovoSegmento = "${MESES_ABREVIADOS[mesEdicao - 1]}/$anoEdicao"
+
+        if (indiceMesEdicao <= mensalidade.mesInicioIndex) {
+            // Edição vale desde o início do segmento: só sobrescreve a linha atual
+            val qtdParcelas = mensalidade.mesFimIndex - mensalidade.mesInicioIndex + 1
+            atualizarLancamento(
+                linha = mensalidade.linha,
+                descricao = novoNome,
+                categoria = "Mensalidade",
+                valorTotal = novoValorMensal * qtdParcelas,
+                formaPagamento = novaFormaPagamento,
+                qtdParcelas = qtdParcelas,
+                mesAno = mesAnoNovoSegmento,
+                observacoes = novasObservacoes
+            )
+        } else {
+            // Encurta o segmento atual até o mês anterior à edição, mantendo
+            // os dados antigos (nome/valor/forma/observações) — o Mês/Ano de início não muda
+            val anoInicioSegmento = (mensalidade.mesInicioIndex - 1) / 12
+            val mesInicioSegmento = mensalidade.mesInicioIndex - anoInicioSegmento * 12
+            val qtdParcelasSegmentoAntigo = indiceMesEdicao - mensalidade.mesInicioIndex
+
+            atualizarLancamento(
+                linha = mensalidade.linha,
+                descricao = mensalidade.nome,
+                categoria = "Mensalidade",
+                valorTotal = mensalidade.valorMensal * qtdParcelasSegmentoAntigo,
+                formaPagamento = mensalidade.formaPagamento,
+                qtdParcelas = qtdParcelasSegmentoAntigo,
+                mesAno = "${MESES_ABREVIADOS[mesInicioSegmento - 1]}/$anoInicioSegmento",
+                observacoes = mensalidade.observacoes
+            )
+
+            // Cria o novo segmento, do mês de edição até dezembro do mesmo ano,
+            // com o mesmo ID (mantém o histórico ligado à mesma mensalidade)
+            val qtdParcelasNovoSegmento = 13 - mesEdicao
+            salvarSegmentoMensalidade(
+                linha = proximaLinhaVazia(),
+                data = SimpleDateFormat("dd/MM/yyyy", Locale("pt", "BR")).format(Date()),
+                nome = novoNome,
+                valorTotal = novoValorMensal * qtdParcelasNovoSegmento,
+                formaPagamento = novaFormaPagamento,
+                qtdParcelas = qtdParcelasNovoSegmento,
+                mesAno = mesAnoNovoSegmento,
+                observacoes = novasObservacoes,
+                idMensalidade = mensalidade.idMensalidade
+            )
+        }
+    }
+
+    /**
+     * Exclui uma mensalidade: limpa o segmento vigente (mês atual em diante)
+     * daquele ID, incluindo a coluna N — preserva o histórico de meses já
+     * passados, que continuam registrados normalmente na planilha.
+     */
+    suspend fun excluirMensalidade(mensalidade: Mensalidade) = withContext(Dispatchers.IO) {
+        excluirLancamento(mensalidade.linha)
+
+        val colunaNVazia = ValueRange().setValues(listOf(listOf("")))
+        sheetsService.spreadsheets().values()
+            .update(SPREADSHEET_ID, "Lançamentos!N${mensalidade.linha}", colunaNVazia)
+            .setValueInputOption("USER_ENTERED")
+            .execute()
+    }
+
+    /**
+     * Grava um segmento de mensalidade (linha inteira: A-C, E-I e N). Usado
+     * tanto na criação quanto na edição "a partir de um mês" (que gera um
+     * novo segmento a partir do mês escolhido).
+     */
+    private suspend fun salvarSegmentoMensalidade(
+        linha: Int,
+        data: String,
+        nome: String,
+        valorTotal: Double,
+        formaPagamento: String,
+        qtdParcelas: Int,
+        mesAno: String,
+        observacoes: String,
+        idMensalidade: String
+    ) = withContext(Dispatchers.IO) {
+        val colunasAC = ValueRange().setValues(listOf(listOf(data, nome, "Mensalidade")))
+        sheetsService.spreadsheets().values()
+            .update(SPREADSHEET_ID, "Lançamentos!A$linha:C$linha", colunasAC)
+            .setValueInputOption("USER_ENTERED")
+            .execute()
+
+        val colunasEI = ValueRange().setValues(
+            listOf(listOf(valorTotal, formaPagamento, qtdParcelas, mesAno, observacoes))
+        )
+        sheetsService.spreadsheets().values()
+            .update(SPREADSHEET_ID, "Lançamentos!E$linha:I$linha", colunasEI)
+            .setValueInputOption("USER_ENTERED")
+            .execute()
+
+        val colunaN = ValueRange().setValues(listOf(listOf(idMensalidade)))
+        sheetsService.spreadsheets().values()
+            .update(SPREADSHEET_ID, "Lançamentos!N$linha", colunaN)
+            .setValueInputOption("USER_ENTERED")
+            .execute()
     }
 
     /**

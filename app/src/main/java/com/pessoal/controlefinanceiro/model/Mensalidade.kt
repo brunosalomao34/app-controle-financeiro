@@ -14,6 +14,7 @@ data class Mensalidade(
     val valorMensal: Double,
     val formaPagamento: String,
     val observacoes: String,
-    val mesInicioIndex: Int, // mês/ano em que esse segmento começou (ano*12 + mês)
-    val mesFimIndex: Int     // mês/ano em que esse segmento termina (dezembro do ano)
+    val ordem: Int,
+    val mesInicioIndex: Int,
+    val mesFimIndex: Int
 )

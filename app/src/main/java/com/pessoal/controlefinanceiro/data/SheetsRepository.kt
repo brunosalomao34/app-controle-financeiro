@@ -162,7 +162,7 @@ class SheetsRepository(context: Context, account: Account) {
      */
     suspend fun listarLancamentos(): List<Lancamento> = withContext(Dispatchers.IO) {
         val response = sheetsService.spreadsheets().values()
-            .get(SPREADSHEET_ID, "Lançamentos!A3:N$ULTIMA_LINHA")
+            .get(SPREADSHEET_ID, "Lançamentos!A3:O$ULTIMA_LINHA")
             .setValueRenderOption("UNFORMATTED_VALUE")
             .setDateTimeRenderOption("SERIAL_NUMBER")
             .execute()
@@ -173,7 +173,7 @@ class SheetsRepository(context: Context, account: Account) {
             val dataSerial = (colunas.getOrNull(0) as? Number)?.toDouble() ?: return@mapIndexedNotNull null
             val dataConvertida = serialParaData(dataSerial)
 
-            val mesAnoSerial = (colunas.getOrNull(7) as? Number)?.toDouble() // coluna H
+            val mesAnoSerial = (colunas.getOrNull(7) as? Number)?.toDouble()
             val dataMesAno = mesAnoSerial?.let { serialParaData(it) } ?: dataConvertida
             val calendarioMesAno = Calendar.getInstance().apply { time = dataMesAno }
 
@@ -182,18 +182,19 @@ class SheetsRepository(context: Context, account: Account) {
                 data = formatoData.format(dataConvertida),
                 descricao = colunas.getOrNull(1)?.toString().orEmpty(),
                 categoria = colunas.getOrNull(2)?.toString().orEmpty(),
-                tipo = colunas.getOrNull(3)?.toString().orEmpty(),                      // D
-                valorTotal = (colunas.getOrNull(4) as? Number)?.toDouble() ?: 0.0,      // E
-                formaPagamento = colunas.getOrNull(5)?.toString().orEmpty(),            // F
-                qtdParcelas = (colunas.getOrNull(9) as? Number)?.toInt()                // J (aux)
-                    ?: (colunas.getOrNull(6) as? Number)?.toInt() ?: 1,                 // G (fallback)
-                valorParcela = (colunas.getOrNull(10) as? Number)?.toDouble() ?: 0.0,   // K (aux)
+                tipo = colunas.getOrNull(3)?.toString().orEmpty(),
+                valorTotal = (colunas.getOrNull(4) as? Number)?.toDouble() ?: 0.0,
+                formaPagamento = colunas.getOrNull(5)?.toString().orEmpty(),
+                qtdParcelas = (colunas.getOrNull(9) as? Number)?.toInt()
+                    ?: (colunas.getOrNull(6) as? Number)?.toInt() ?: 1,
+                valorParcela = (colunas.getOrNull(10) as? Number)?.toDouble() ?: 0.0,
                 mesNumero = calendarioMesAno.get(Calendar.MONTH) + 1,
                 anoNumero = calendarioMesAno.get(Calendar.YEAR),
-                mesInicioIndex = (colunas.getOrNull(11) as? Number)?.toInt() ?: 0,      // L (aux)
-                mesFimIndex = (colunas.getOrNull(12) as? Number)?.toInt() ?: -1,        // M (aux)
-                observacoes = colunas.getOrNull(8)?.toString().orEmpty(),               // I
-                idMensalidade = colunas.getOrNull(13)?.toString()?.takeIf { it.isNotBlank() } // N
+                mesInicioIndex = (colunas.getOrNull(11) as? Number)?.toInt() ?: 0,
+                mesFimIndex = (colunas.getOrNull(12) as? Number)?.toInt() ?: -1,
+                observacoes = colunas.getOrNull(8)?.toString().orEmpty(),
+                idMensalidade = colunas.getOrNull(13)?.toString()?.takeIf { it.isNotBlank() },
+                ordemMensalidade = (colunas.getOrNull(14) as? Number)?.toInt()  // O
             )
         }
     }
@@ -271,7 +272,9 @@ class SheetsRepository(context: Context, account: Account) {
         val calendarioAtual = Calendar.getInstance()
         val mesAtual = calendarioAtual.get(Calendar.MONTH) + 1
         val anoAtual = calendarioAtual.get(Calendar.YEAR)
-        val mesesRestantes = 13 - mesAtual // ex: lançada em agosto (8) -> 5 meses (ago a dez)
+        val mesesRestantes = 13 - mesAtual
+
+        val ordem = listarMensalidadesAtivas().size // novas mensalidades entram no final da lista
 
         val linha = proximaLinhaVazia()
         salvarSegmentoMensalidade(
@@ -283,7 +286,8 @@ class SheetsRepository(context: Context, account: Account) {
             qtdParcelas = mesesRestantes,
             mesAno = "${MESES_ABREVIADOS[mesAtual - 1]}/$anoAtual",
             observacoes = observacoes,
-            idMensalidade = UUID.randomUUID().toString()
+            idMensalidade = UUID.randomUUID().toString(),
+            ordem = ordem
         )
     }
 
@@ -303,7 +307,7 @@ class SheetsRepository(context: Context, account: Account) {
             .mapNotNull { (id, segmentos) ->
                 val segmentoVigente = segmentos
                     .filter { it.mesFimIndex >= indiceMesAtual }
-                    .maxByOrNull { it.mesInicioIndex } // o mais recente entre os vigentes
+                    .maxByOrNull { it.mesInicioIndex }
                     ?: return@mapNotNull null
 
                 Mensalidade(
@@ -313,10 +317,12 @@ class SheetsRepository(context: Context, account: Account) {
                     valorMensal = segmentoVigente.valorParcela,
                     formaPagamento = segmentoVigente.formaPagamento,
                     observacoes = segmentoVigente.observacoes,
+                    ordem = segmentoVigente.ordemMensalidade ?: 0,
                     mesInicioIndex = segmentoVigente.mesInicioIndex,
                     mesFimIndex = segmentoVigente.mesFimIndex
                 )
             }
+            .sortedBy { it.ordem } // aplica a ordem definida pelo usuário
     }
 
     /**
@@ -341,7 +347,6 @@ class SheetsRepository(context: Context, account: Account) {
         val mesAnoNovoSegmento = "${MESES_ABREVIADOS[mesEdicao - 1]}/$anoEdicao"
 
         if (indiceMesEdicao <= mensalidade.mesInicioIndex) {
-            // Edição vale desde o início do segmento: só sobrescreve a linha atual
             val qtdParcelas = mensalidade.mesFimIndex - mensalidade.mesInicioIndex + 1
             atualizarLancamento(
                 linha = mensalidade.linha,
@@ -354,8 +359,6 @@ class SheetsRepository(context: Context, account: Account) {
                 observacoes = novasObservacoes
             )
         } else {
-            // Encurta o segmento atual até o mês anterior à edição, mantendo
-            // os dados antigos (nome/valor/forma/observações) — o Mês/Ano de início não muda
             val anoInicioSegmento = (mensalidade.mesInicioIndex - 1) / 12
             val mesInicioSegmento = mensalidade.mesInicioIndex - anoInicioSegmento * 12
             val qtdParcelasSegmentoAntigo = indiceMesEdicao - mensalidade.mesInicioIndex
@@ -371,8 +374,6 @@ class SheetsRepository(context: Context, account: Account) {
                 observacoes = mensalidade.observacoes
             )
 
-            // Cria o novo segmento, do mês de edição até dezembro do mesmo ano,
-            // com o mesmo ID (mantém o histórico ligado à mesma mensalidade)
             val qtdParcelasNovoSegmento = 13 - mesEdicao
             salvarSegmentoMensalidade(
                 linha = proximaLinhaVazia(),
@@ -383,7 +384,8 @@ class SheetsRepository(context: Context, account: Account) {
                 qtdParcelas = qtdParcelasNovoSegmento,
                 mesAno = mesAnoNovoSegmento,
                 observacoes = novasObservacoes,
-                idMensalidade = mensalidade.idMensalidade
+                idMensalidade = mensalidade.idMensalidade,
+                ordem = mensalidade.ordem // mantém a mesma posição na lista
             )
         }
     }
@@ -417,7 +419,8 @@ class SheetsRepository(context: Context, account: Account) {
         qtdParcelas: Int,
         mesAno: String,
         observacoes: String,
-        idMensalidade: String
+        idMensalidade: String,
+        ordem: Int
     ) = withContext(Dispatchers.IO) {
         val colunasAC = ValueRange().setValues(listOf(listOf(data, nome, "Mensalidade")))
         sheetsService.spreadsheets().values()
@@ -433,9 +436,9 @@ class SheetsRepository(context: Context, account: Account) {
             .setValueInputOption("USER_ENTERED")
             .execute()
 
-        val colunaN = ValueRange().setValues(listOf(listOf(idMensalidade)))
+        val colunasNO = ValueRange().setValues(listOf(listOf(idMensalidade, ordem)))
         sheetsService.spreadsheets().values()
-            .update(SPREADSHEET_ID, "Lançamentos!N$linha", colunaN)
+            .update(SPREADSHEET_ID, "Lançamentos!N$linha:O$linha", colunasNO)
             .setValueInputOption("USER_ENTERED")
             .execute()
     }
@@ -450,5 +453,24 @@ class SheetsRepository(context: Context, account: Account) {
         calendario.set(Calendar.MILLISECOND, 0)
         calendario.add(Calendar.DATE, serial.toInt())
         return calendario.time
+    }
+
+    /**
+     * Salva a nova ordem de exibição das mensalidades (coluna O), na ordem em
+     * que aparecem na lista recebida. Usa batchUpdate pra gravar tudo numa
+     * única chamada à API, independente de quantas mensalidades existam.
+     */
+    suspend fun atualizarOrdemMensalidades(mensalidadesOrdenadas: List<Mensalidade>) = withContext(Dispatchers.IO) {
+        val dadosAtualizacao = mensalidadesOrdenadas.mapIndexed { indice, mensalidade ->
+            ValueRange()
+                .setRange("Lançamentos!O${mensalidade.linha}")
+                .setValues(listOf(listOf(indice)))
+        }
+        val requisicao = com.google.api.services.sheets.v4.model.BatchUpdateValuesRequest()
+            .setValueInputOption("USER_ENTERED")
+            .setData(dadosAtualizacao)
+        sheetsService.spreadsheets().values()
+            .batchUpdate(SPREADSHEET_ID, requisicao)
+            .execute()
     }
 }

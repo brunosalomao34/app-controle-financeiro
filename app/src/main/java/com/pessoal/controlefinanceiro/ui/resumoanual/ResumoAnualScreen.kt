@@ -35,8 +35,8 @@ private val NOMES_MESES = listOf(
 private val CorEntradas = Color(0xFF00C853) // verde vivo
 private val CorSaidas = Color(0xFFD50000)   // vermelho forte
 
-// Altura máxima do menu suspenso: ~5 itens visíveis (48dp cada), com scroll pro resto
-private val ALTURA_MAXIMA_DROPDOWN = 240.dp
+// Altura máxima dos menus suspensos: 6 itens visíveis
+private val ALTURA_MAXIMA_DROPDOWN = 305.dp
 
 /**
  * Tela de Resumo — mostra, para o ano selecionado: totais do ano,
@@ -91,7 +91,7 @@ fun ResumoAnualScreen(repository: SheetsRepository) {
     ) {
         Text("Resumo Anual", style = MaterialTheme.typography.headlineSmall)
 
-        // Seletor de ano — só mostra anos que existem na planilha
+// Seletor de ano — só mostra anos que existem na planilha
         ExposedDropdownMenuBox(expanded = anoExpandido, onExpandedChange = { anoExpandido = it }) {
             OutlinedTextField(
                 value = anoSelecionado.toString(),
@@ -115,13 +115,21 @@ fun ResumoAnualScreen(repository: SheetsRepository) {
             }
         }
 
+        HorizontalDivider(thickness = 1.dp)
+
         if (carregando) {
             Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
         } else {
-            CardTotaisDoAno(totalEntradasAno, totalSaidasAno, saldoAno, formatoMoeda)
             CardTabelaMensal(resumo, formatoMoeda)
+
+            HorizontalDivider(thickness = 1.dp)
+
+            CardTotaisDoAno(totalEntradasAno, totalSaidasAno, saldoAno, formatoMoeda)
+
+            HorizontalDivider(thickness = 1.dp)
+
             CardGrafico(modelProducer)
         }
     }
@@ -162,21 +170,31 @@ private fun CardTabelaMensal(resumo: List<ResumoMes>, formatoMoeda: NumberFormat
                     CelulaTabela(NOMES_MESES[mes.mes - 1], peso = 0.7f)
                     CelulaTabela(formatoMoeda.format(mes.totalEntradas), peso = 1.4f)
                     CelulaTabela(formatoMoeda.format(mes.totalSaidas), peso = 1.4f)
-                    CelulaTabela(formatoMoeda.format(mes.saldo), peso = 1.4f)
+                    CelulaTabela(
+                        formatoMoeda.format(mes.saldo),
+                        peso = 1.4f,
+                        cor = if (mes.saldo >= 0) CorEntradas else CorSaidas
+                    )
                 }
             }
         }
     }
 }
 
-/** Uma célula de texto da tabela, com peso de coluna configurável. */
+/** Uma célula de texto da tabela, com peso de coluna e cor configuráveis. */
 @Composable
-private fun RowScope.CelulaTabela(texto: String, peso: Float, negrito: Boolean = false) {
+private fun RowScope.CelulaTabela(
+    texto: String,
+    peso: Float,
+    negrito: Boolean = false,
+    cor: Color = Color.Unspecified
+) {
     Text(
         texto,
         modifier = Modifier.weight(peso),
         maxLines = 1,
         fontWeight = if (negrito) FontWeight.Bold else FontWeight.Normal,
+        color = cor,
         style = if (negrito) MaterialTheme.typography.labelSmall else MaterialTheme.typography.bodySmall
     )
 }

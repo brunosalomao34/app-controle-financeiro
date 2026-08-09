@@ -15,5 +15,6 @@ data class Lancamento(
     val mesInicioIndex: Int,
     val mesFimIndex: Int,
     val observacoes: String,
-    val idMensalidade: String?
+    val idMensalidade: String?,
+    val ordemMensalidade: Int?
 )

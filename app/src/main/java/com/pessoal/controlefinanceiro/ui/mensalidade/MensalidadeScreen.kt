@@ -9,6 +9,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowCircleDown
 import androidx.compose.material.icons.filled.ArrowCircleUp
@@ -45,8 +48,8 @@ private val NOMES_MESES = listOf(
     "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
 )
 
-// Altura máxima dos menus suspensos: ~5 itens visíveis, com scroll pro resto
-private val ALTURA_MAXIMA_DROPDOWN = 240.dp
+// Altura máxima dos menus suspensos: 6 itens visíveis
+private val ALTURA_MAXIMA_DROPDOWN = 305.dp
 
 /**
  * Tela de Mensalidades — cadastra um valor fixo mensal (ex: academia, streaming)
@@ -85,6 +88,17 @@ fun MensalidadeScreen(repository: SheetsRepository) {
         carregando = true
         mensalidades = repository.listarMensalidadesAtivas()
         carregando = false
+    }
+
+    fun moverMensalidade(indice: Int, novoIndice: Int) {
+        if (novoIndice < 0 || novoIndice >= mensalidades.size) return
+        val novaLista = mensalidades.toMutableList()
+        val item = novaLista.removeAt(indice)
+        novaLista.add(novoIndice, item)
+        mensalidades = novaLista // atualiza a tela na hora
+        scope.launch {
+            repository.atualizarOrdemMensalidades(novaLista) // persiste na planilha
+        }
     }
 
     LaunchedEffect(Unit) { recarregar() }
@@ -248,14 +262,18 @@ fun MensalidadeScreen(repository: SheetsRepository) {
             else -> {
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.heightIn(max = 2000.dp) // dentro de Column com scroll, evita LazyColumn infinita
+                    modifier = Modifier.heightIn(max = 2000.dp)
                 ) {
-                    items(mensalidades, key = { it.idMensalidade }) { mensalidade ->
+                    itemsIndexed(mensalidades, key = { _, m -> m.idMensalidade }) { indice, mensalidade ->
                         ItemMensalidade(
                             mensalidade = mensalidade,
                             formatoMoeda = formatoMoeda,
+                            podeSubir = indice > 0,
+                            podeDescer = indice < mensalidades.size - 1,
                             aoEditar = { mensalidadeParaEditar = mensalidade },
-                            aoExcluir = { mensalidadeParaExcluir = mensalidade }
+                            aoExcluir = { mensalidadeParaExcluir = mensalidade },
+                            aoMoverParaCima = { moverMensalidade(indice, indice - 1) },
+                            aoMoverParaBaixo = { moverMensalidade(indice, indice + 1) }
                         )
                     }
                 }
@@ -313,13 +331,18 @@ fun MensalidadeScreen(repository: SheetsRepository) {
     }
 }
 
-/** Card de uma mensalidade ativa, com período de vigência e botões de editar/remover. */
+/** Card de uma mensalidade ativa, com período de vigência, botões de
+ *  editar/remover e setas pra reordenar a posição na lista. */
 @Composable
 private fun ItemMensalidade(
     mensalidade: Mensalidade,
     formatoMoeda: NumberFormat,
+    podeSubir: Boolean,
+    podeDescer: Boolean,
     aoEditar: () -> Unit,
-    aoExcluir: () -> Unit
+    aoExcluir: () -> Unit,
+    aoMoverParaCima: () -> Unit,
+    aoMoverParaBaixo: () -> Unit
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -327,6 +350,15 @@ private fun ItemMensalidade(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            Column {
+                IconButton(onClick = aoMoverParaCima, enabled = podeSubir) {
+                    Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Mover para cima")
+                }
+                IconButton(onClick = aoMoverParaBaixo, enabled = podeDescer) {
+                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Mover para baixo")
+                }
+            }
+
             Column(modifier = Modifier.weight(1f)) {
                 Text(mensalidade.nome, style = MaterialTheme.typography.titleMedium)
                 Text(

@@ -37,8 +37,8 @@ private val MESES = listOf(
 // Opções fixas de forma de pagamento
 private val FORMAS_PAGAMENTO = listOf("Dinheiro", "Pix", "Boleto", "Débito", "Crédito")
 
-// Altura máxima dos menus suspensos: ~5 itens visíveis (48dp cada), com scroll pro resto
-private val ALTURA_MAXIMA_DROPDOWN = 240.dp
+// Altura máxima dos menus suspensos: 6 itens visíveis
+private val ALTURA_MAXIMA_DROPDOWN = 305.dp
 
 /**
  * Tela de Lançamento — funciona em dois modos:

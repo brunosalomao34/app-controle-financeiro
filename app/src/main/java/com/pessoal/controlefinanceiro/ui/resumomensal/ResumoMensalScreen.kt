@@ -1,15 +1,14 @@
 package com.pessoal.controlefinanceiro.ui.resumomensal
 
 import android.widget.Toast
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.ArrowCircleDown
-import androidx.compose.material.icons.filled.ArrowCircleUp
+import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -42,24 +41,15 @@ private val MESES = listOf(
 // "Todos" + opções fixas de forma de pagamento (mesmas da Tela de Lançamento)
 private val FORMAS_PAGAMENTO_FILTRO = listOf("Todos", "Dinheiro", "Pix", "Boleto", "Débito", "Crédito")
 
-// Altura máxima dos menus suspensos: ~5 itens visíveis (48dp cada), com scroll pro resto
-private val ALTURA_MAXIMA_DROPDOWN = 240.dp
-
-/** Totais de um mês para uma forma de pagamento específica. */
-private data class TotalFormaPagamento(
-    val forma: String,
-    val entradas: Double,
-    val saidas: Double,
-    val saldo: Double
-)
+// Altura máxima dos menus suspensos: 6 itens visíveis
+private val ALTURA_MAXIMA_DROPDOWN = 305.dp
 
 /**
  * Tela de Lista — filtra os lançamentos por Mês/Ano e, opcionalmente, por
- * Forma de Pagamento. Lançamentos parcelados aparecem em todos os meses
- * cobertos pela parcela (usando as colunas auxiliares K "Mês Início" e
- * L "Mês Fim" da planilha). Mostra também uma tabela com Entradas/Saídas/
- * Saldo do mês, quebrada por forma de pagamento. Mensalidades aparecem
- * sempre no início da lista, antes dos demais lançamentos.
+ * Forma de Pagamento (os 3 filtros ficam numa única linha). Lançamentos
+ * parcelados aparecem em todos os meses cobertos pela parcela (usando as
+ * colunas auxiliares K "Mês Início" e L "Mês Fim" da planilha). Mensalidades
+ * aparecem sempre no início da lista, antes dos demais lançamentos.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -82,9 +72,6 @@ fun ResumoMensalScreen(repository: SheetsRepository, aoEditar: (Int) -> Unit) {
     // Filtro por forma de pagamento — "Todos" por padrão
     var formaPagamentoFiltro by remember { mutableStateOf("Todos") }
     var formaPagamentoFiltroExpandido by remember { mutableStateOf(false) }
-
-    // Controla se a tabela de totais por forma de pagamento está expandida
-    var tabelaExpandida by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
 
@@ -120,39 +107,29 @@ fun ResumoMensalScreen(repository: SheetsRepository, aoEditar: (Int) -> Unit) {
 
     // Filtra pelo mês/ano selecionado (via intervalo de parcelas K/L) e,
     // se escolhido, também pela forma de pagamento. Mensalidades (categoria
-    // "Mensalidade") vêm sempre primeiro; dentro de cada grupo, ordena pela
-    // ordem de lançamento (linha na planilha).
+    // "Mensalidade") vêm sempre primeiro, na ordem definida na Tela de
+    // Mensalidades; os demais lançamentos seguem a ordem de lançamento.
     val lancamentosFiltrados = remember(todosLancamentos, mesSelecionado, anoSelecionado, formaPagamentoFiltro) {
         todosLancamentos
             .filter { indiceMesConsultado in it.mesInicioIndex..it.mesFimIndex }
             .filter { formaPagamentoFiltro == "Todos" || it.formaPagamento == formaPagamentoFiltro }
             .sortedWith(
                 compareByDescending<Lancamento> { it.categoria == "Mensalidade" }
-                    .thenBy { it.linha }
+                    .thenBy { if (it.categoria == "Mensalidade") (it.ordemMensalidade ?: Int.MAX_VALUE) else it.linha }
             )
-    }
-
-    // Tabela: uma linha fixa pra cada forma de pagamento (Dinheiro, Pix, Boleto,
-    // Débito, Crédito), sempre visíveis mesmo com valor zero no mês. Soma
-    // Entradas e Saídas separadamente (usando o valor da parcela quando aplicável).
-    val totaisPorForma = remember(lancamentosFiltrados) {
-        fun valorEfetivo(l: Lancamento) = if (l.qtdParcelas > 1) l.valorParcela else l.valorTotal
-
-        FORMAS_PAGAMENTO_FILTRO.drop(1) // remove "Todos", mantém só as formas reais
-            .map { forma ->
-                val itensDaForma = lancamentosFiltrados.filter { it.formaPagamento == forma }
-                val entradas = itensDaForma.filter { it.tipo == "Entrada" }.sumOf(::valorEfetivo)
-                val saidas = itensDaForma.filter { it.tipo == "Saída" }.sumOf(::valorEfetivo)
-                TotalFormaPagamento(forma, entradas, saidas, entradas - saidas)
-            }
     }
 
     Column(modifier = Modifier.fillMaxSize().statusBarsPadding().padding(16.dp)) {
         Text("Resumo Mensal", style = MaterialTheme.typography.headlineSmall)
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Filtro Mês/Ano
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+// Filtros Mês / Ano numa linha, com o filtro de Forma de Pagamento
+        // recolhido num ícone no canto direito
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
             ExposedDropdownMenuBox(
                 expanded = mesExpandido,
                 onExpandedChange = { mesExpandido = it },
@@ -162,6 +139,7 @@ fun ResumoMensalScreen(repository: SheetsRepository, aoEditar: (Int) -> Unit) {
                     value = mesSelecionado.first,
                     onValueChange = {},
                     readOnly = true,
+                    singleLine = true,
                     label = { Text("Mês") },
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = mesExpandido) },
                     modifier = Modifier.fillMaxWidth().menuAnchor()
@@ -189,6 +167,7 @@ fun ResumoMensalScreen(repository: SheetsRepository, aoEditar: (Int) -> Unit) {
                     value = anoSelecionado.toString(),
                     onValueChange = {},
                     readOnly = true,
+                    singleLine = true,
                     label = { Text("Ano") },
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = anoExpandido) },
                     modifier = Modifier.fillMaxWidth().menuAnchor()
@@ -206,38 +185,46 @@ fun ResumoMensalScreen(repository: SheetsRepository, aoEditar: (Int) -> Unit) {
                     }
                 }
             }
-        }
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Filtro por Forma de Pagamento
-        ExposedDropdownMenuBox(
-            expanded = formaPagamentoFiltroExpandido,
-            onExpandedChange = { formaPagamentoFiltroExpandido = it }
-        ) {
-            OutlinedTextField(
-                value = formaPagamentoFiltro,
-                onValueChange = {},
-                readOnly = true,
-                label = { Text("Forma de Pagamento") },
-                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = formaPagamentoFiltroExpandido) },
-                modifier = Modifier.fillMaxWidth().menuAnchor()
-            )
-            ExposedDropdownMenu(
-                expanded = formaPagamentoFiltroExpandido,
-                onDismissRequest = { formaPagamentoFiltroExpandido = false },
-                modifier = Modifier.heightIn(max = ALTURA_MAXIMA_DROPDOWN)
-            ) {
-                FORMAS_PAGAMENTO_FILTRO.forEach { forma ->
-                    DropdownMenuItem(text = { Text(forma) }, onClick = {
-                        formaPagamentoFiltro = forma
-                        formaPagamentoFiltroExpandido = false
-                    })
+            // Ícone de filtro por forma de pagamento — fica azul (cor primária)
+            // quando um filtro diferente de "Todos" está ativo
+            Box {
+                IconButton(onClick = { formaPagamentoFiltroExpandido = true }) {
+                    Icon(
+                        Icons.Default.FilterAlt,
+                        contentDescription = "Filtrar por forma de pagamento",
+                        tint = if (formaPagamentoFiltro != "Todos")
+                            MaterialTheme.colorScheme.primary
+                        else
+                            LocalContentColor.current
+                    )
+                }
+                DropdownMenu(
+                    expanded = formaPagamentoFiltroExpandido,
+                    onDismissRequest = { formaPagamentoFiltroExpandido = false },
+                    modifier = Modifier.heightIn(max = ALTURA_MAXIMA_DROPDOWN)
+                ) {
+                    FORMAS_PAGAMENTO_FILTRO.forEach { forma ->
+                        DropdownMenuItem(
+                            text = { Text(forma) },
+                            onClick = {
+                                formaPagamentoFiltro = forma
+                                formaPagamentoFiltroExpandido = false
+                            },
+                            trailingIcon = {
+                                if (forma == formaPagamentoFiltro) {
+                                    Icon(Icons.Default.Check, contentDescription = null)
+                                }
+                            }
+                        )
+                    }
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(16.dp))
+        HorizontalDivider(thickness = 1.dp)
+        Spacer(modifier = Modifier.height(16.dp))
 
         when {
             carregando -> {
@@ -249,18 +236,6 @@ fun ResumoMensalScreen(repository: SheetsRepository, aoEditar: (Int) -> Unit) {
                 Text("Nenhum lançamento em ${mesSelecionado.first} de $anoSelecionado.")
             }
             else -> {
-                CardTabelaPorFormaPagamento(
-                    mesLabel = "${mesSelecionado.first} de $anoSelecionado",
-                    totaisPorForma = totaisPorForma,
-                    formatoMoeda = formatoMoeda,
-                    expandida = tabelaExpandida,
-                    aoAlternarExpandida = { tabelaExpandida = !tabelaExpandida }
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-                HorizontalDivider(thickness = 1.dp)
-                Spacer(modifier = Modifier.height(16.dp))
-
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(lancamentosFiltrados, key = { it.linha }) { lancamento ->
                         ItemLancamento(
@@ -280,6 +255,7 @@ fun ResumoMensalScreen(repository: SheetsRepository, aoEditar: (Int) -> Unit) {
                                         valorMensal = lancamento.valorParcela,
                                         formaPagamento = lancamento.formaPagamento,
                                         observacoes = lancamento.observacoes,
+                                        ordem = lancamento.ordemMensalidade ?: 0,
                                         mesInicioIndex = lancamento.mesInicioIndex,
                                         mesFimIndex = lancamento.mesFimIndex
                                     )
@@ -317,7 +293,7 @@ fun ResumoMensalScreen(repository: SheetsRepository, aoEditar: (Int) -> Unit) {
         )
     }
 
-// Diálogo de confirmação de exclusão — texto e ação mudam conforme o item
+    // Diálogo de confirmação de exclusão — texto e ação mudam conforme o item
     // seja uma mensalidade (usa excluirMensalidade, que também limpa o ID da
     // coluna N) ou um lançamento comum (usa excluirLancamento, avisando quando
     // parcelado).
@@ -354,7 +330,8 @@ fun ResumoMensalScreen(repository: SheetsRepository, aoEditar: (Int) -> Unit) {
                                     formaPagamento = lancamento.formaPagamento,
                                     observacoes = lancamento.observacoes,
                                     mesInicioIndex = lancamento.mesInicioIndex,
-                                    mesFimIndex = lancamento.mesFimIndex
+                                    mesFimIndex = lancamento.mesFimIndex,
+                                    ordem = lancamento.ordemMensalidade ?: 0
                                 )
                             )
                         } else {
@@ -370,81 +347,6 @@ fun ResumoMensalScreen(repository: SheetsRepository, aoEditar: (Int) -> Unit) {
             }
         )
     }
-}
-
-/**
- * Tabela: linhas = forma de pagamento (fixas), colunas = Entrada / Saída / Saldo do mês.
- * Pode ser recolhida através do botão no canto superior direito.
- */
-@Composable
-private fun CardTabelaPorFormaPagamento(
-    mesLabel: String,
-    totaisPorForma: List<TotalFormaPagamento>,
-    formatoMoeda: NumberFormat,
-    expandida: Boolean,
-    aoAlternarExpandida: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = aoAlternarExpandida)
-    ) {
-        Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp)) {
-            // Cabeçalho do card: título + botão de expandir/recolher
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    "Totais de $mesLabel",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                IconButton(onClick = aoAlternarExpandida) {
-                    Icon(
-                        imageVector = if (expandida) Icons.Filled.ArrowCircleUp else Icons.Filled.ArrowCircleDown,
-                        contentDescription = if (expandida) "Recolher tabela" else "Expandir tabela"
-                    )
-                }
-            }
-
-            if (expandida) {
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Cabeçalho da tabela
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    CelulaTabelaForma("Forma", peso = 1f, negrito = true)
-                    CelulaTabelaForma("Entrada", peso = 1f, negrito = true)
-                    CelulaTabelaForma("Saída", peso = 1f, negrito = true)
-                    CelulaTabelaForma("Saldo", peso = 1f, negrito = true)
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-
-                // Uma linha fixa por forma de pagamento
-                totaisPorForma.forEach { totalForma ->
-                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-                        CelulaTabelaForma(totalForma.forma, peso = 1f)
-                        CelulaTabelaForma(formatoMoeda.format(totalForma.entradas), peso = 1f)
-                        CelulaTabelaForma(formatoMoeda.format(totalForma.saidas), peso = 1f)
-                        CelulaTabelaForma(formatoMoeda.format(totalForma.saldo), peso = 1f)
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** Uma célula de texto da tabela de formas de pagamento. */
-@Composable
-private fun RowScope.CelulaTabelaForma(texto: String, peso: Float, negrito: Boolean = false) {
-    Text(
-        texto,
-        modifier = Modifier.weight(peso),
-        maxLines = 1,
-        fontWeight = if (negrito) FontWeight.Bold else FontWeight.Normal,
-        style = if (negrito) MaterialTheme.typography.labelSmall else MaterialTheme.typography.bodySmall
-    )
 }
 
 /** Card de um lançamento na lista, com botões de editar e remover. */

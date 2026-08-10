@@ -6,10 +6,17 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
+import com.pessoal.controlefinanceiro.R
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
@@ -21,14 +28,15 @@ import com.pessoal.controlefinanceiro.data.SheetsRepository
 import com.pessoal.controlefinanceiro.data.possuiConexaoInternet
 import com.pessoal.controlefinanceiro.ui.comum.SemConexaoScreen
 import com.pessoal.controlefinanceiro.ui.nav.AppNavHost
+import com.pessoal.controlefinanceiro.ui.theme.ControleFinanceiroTheme
 
 /**
  * Activity única do app. Ordem de verificação ao abrir:
  * 1) Tem internet? Se não, mostra SemConexaoScreen.
  * 2) Tem sessão do Google salva com permissão da planilha? Se sim, entra direto.
- * 3) Senão, mostra o botão "Entrar com Google".
+ * 3) Senão, mostra a tela de boas-vindas com o botão "Entrar com Google".
  * Uma vez conectado, entrega o controle pro AppNavHost (Navigation Compose
- * com as 3 telas principais).
+ * com as telas principais).
  */
 class LoginActivity : ComponentActivity() {
 
@@ -63,7 +71,8 @@ class LoginActivity : ComponentActivity() {
         setContent {
             var conectado by remember { mutableStateOf(false) }
             var repositorio by remember { mutableStateOf<SheetsRepository?>(null) }
-            var status by remember { mutableStateOf("Não conectado") }
+            var mensagemErro by remember { mutableStateOf<String?>(null) }
+            var entrando by remember { mutableStateOf(false) }
             var verificandoLoginSalvo by remember { mutableStateOf(true) }
 
             // Contador incrementado pelo botão "Tentar novamente" da tela de
@@ -89,13 +98,15 @@ class LoginActivity : ComponentActivity() {
             onLoginSuccess = { account ->
                 repositorio = SheetsRepository(this@LoginActivity, account.account!!)
                 conectado = true
+                entrando = false
             }
             onLoginError = { e ->
-                status = "Erro no login: ${e.message}"
+                mensagemErro = "Erro no login: ${e.message}"
+                entrando = false
             }
 
-            MaterialTheme {
-                Surface(modifier = Modifier.fillMaxSize()) {
+            ControleFinanceiroTheme {
+                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     when {
                         // 1) Sem internet: mostra antes de qualquer outra checagem
                         !temConexao -> {
@@ -111,21 +122,112 @@ class LoginActivity : ComponentActivity() {
                         conectado && repositorio != null -> {
                             AppNavHost(repository = repositorio!!)
                         }
-                        // 4) Sem sessão salva → pede login manual
+                        // 4) Sem sessão salva → tela de boas-vindas com login manual
                         else -> {
-                            Column(
-                                modifier = Modifier.fillMaxSize().padding(24.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Text(text = status)
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Button(onClick = { signInLauncher.launch(googleSignInClient.signInIntent) }) {
-                                    Text("Entrar com Google")
+                            TelaBoasVindas(
+                                entrando = entrando,
+                                mensagemErro = mensagemErro,
+                                aoClicarEntrar = {
+                                    entrando = true
+                                    mensagemErro = null
+                                    signInLauncher.launch(googleSignInClient.signInIntent)
                                 }
-                            }
+                            )
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Tela de boas-vindas exibida antes do login: ícone do app dentro de um
+ * círculo colorido, nome e subtítulo, e o botão "Entrar com Google" dentro
+ * de um card, com uma explicação curta do que o app faz.
+ */
+@Composable
+private fun TelaBoasVindas(
+    entrando: Boolean,
+    mensagemErro: String?,
+    aoClicarEntrar: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        // Imagem do app, colocada diretamente em res/drawable/logo_app.png
+        Image(
+            painter = painterResource(id = R.drawable.logo_app),
+            contentDescription = "Ícone do app",
+            modifier = Modifier
+                .size(96.dp)
+                .clip(CircleShape)
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Text(
+            "Controle Financeiro",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            "Seus lançamentos, mensalidades e resumos, direto na sua planilha do Google Sheets.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(modifier = Modifier.height(40.dp))
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp).fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    "Entre com sua conta Google para acessar sua planilha",
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Button(
+                    onClick = aoClicarEntrar,
+                    enabled = !entrando,
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                ) {
+                    if (entrando) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Text("Entrar com Google")
+                    }
+                }
+
+                if (mensagemErro != null) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        mensagemErro,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        textAlign = TextAlign.Center
+                    )
                 }
             }
         }

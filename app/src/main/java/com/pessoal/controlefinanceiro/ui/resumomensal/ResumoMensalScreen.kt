@@ -119,11 +119,13 @@ fun ResumoMensalScreen(repository: SheetsRepository, aoEditar: (Int) -> Unit) {
             )
     }
 
-    Column(modifier = Modifier.fillMaxSize().statusBarsPadding().padding(16.dp)) {
+    Column(
+        modifier = Modifier.fillMaxSize().statusBarsPadding().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
         Text("Resumo Mensal", style = MaterialTheme.typography.headlineSmall)
-        Spacer(modifier = Modifier.height(12.dp))
 
-// Filtros Mês / Ano numa linha, com o filtro de Forma de Pagamento
+        // Filtros Mês / Ano numa linha, com o filtro de Forma de Pagamento
         // recolhido num ícone no canto direito
         Row(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -222,9 +224,7 @@ fun ResumoMensalScreen(repository: SheetsRepository, aoEditar: (Int) -> Unit) {
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
         HorizontalDivider(thickness = 1.dp)
-        Spacer(modifier = Modifier.height(16.dp))
 
         when {
             carregando -> {

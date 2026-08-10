@@ -15,6 +15,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
@@ -61,8 +62,9 @@ fun AppNavHost(repository: SheetsRepository) {
                 val rotaAtual = backStackEntry?.destination?.route
 
                 itensMenu.forEach { item ->
+                    val selecionado = rotaAtual == item.rota
                     NavigationBarItem(
-                        selected = rotaAtual == item.rota,
+                        selected = selecionado,
                         onClick = {
                             navController.navigate(item.rota) {
                                 popUpTo(navController.graph.findStartDestination().id) {
@@ -71,16 +73,29 @@ fun AppNavHost(repository: SheetsRepository) {
                                 launchSingleTop = true
                             }
                         },
+                        // Marcação clara da tela atual: ícone preenchido em cor de destaque
+                        // com um "pill" de fundo (indicatorColor) quando selecionado; nos
+                        // demais itens, ícone e texto ficam numa cor neutra/apagada.
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            selectedTextColor = MaterialTheme.colorScheme.primary,
+                            indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        ),
                         icon = { Icon(item.icone, contentDescription = item.label) },
                         label = {
-                            // Quebra o rótulo em 2 linhas quando tem 2 palavras (primeira em cima,
-                            // resto embaixo); rótulos de 1 palavra só (como "Mensalidades") ficam
-                            // numa linha só, sem deixar uma segunda linha em branco.
+                            // Sempre reserva 2 linhas (mesmo que a segunda fique em branco, como em
+                            // "Mensalidades") — isso garante que todos os itens tenham a mesma
+                            // altura de rótulo, mantendo os ícones alinhados na mesma posição
+                            // vertical na bottom bar. O rótulo do item ativo fica em negrito,
+                            // reforçando a marcação da tela atual.
                             val partes = item.label.split(" ", limit = 2)
-                            val texto = if (partes.size > 1) "${partes[0]}\n${partes[1]}" else partes[0]
+                            val segundaLinha = partes.getOrElse(1) { "" }
                             Text(
-                                text = texto,
+                                text = "${partes[0]}\n$segundaLinha",
                                 textAlign = TextAlign.Center,
+                                fontWeight = if (selecionado) FontWeight.Bold else FontWeight.Normal,
                                 style = MaterialTheme.typography.labelSmall
                             )
                         }

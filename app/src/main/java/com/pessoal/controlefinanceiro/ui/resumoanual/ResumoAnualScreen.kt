@@ -87,11 +87,11 @@ fun ResumoAnualScreen(repository: SheetsRepository) {
             .statusBarsPadding()
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("Resumo Anual", style = MaterialTheme.typography.headlineSmall)
 
-// Seletor de ano — só mostra anos que existem na planilha
+        // Seletor de ano — só mostra anos que existem na planilha
         ExposedDropdownMenuBox(expanded = anoExpandido, onExpandedChange = { anoExpandido = it }) {
             OutlinedTextField(
                 value = anoSelecionado.toString(),

@@ -5,7 +5,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -113,17 +112,20 @@ fun MensalidadeScreen(repository: SheetsRepository) {
             }
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("Mensalidades", style = MaterialTheme.typography.headlineSmall)
 
         // ── Formulário de nova mensalidade — clicável pra abrir/fechar ──
+        // Padding vertical de 8dp (não 16) deixa o cabeçalho fechado com
+        // altura próxima à de um campo de filtro (Mês/Ano/Pagamento),
+        // igual às Telas de Resumo Mensal e Anual.
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable { formularioExpandido = !formularioExpandido }
         ) {
-            Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp)) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -139,7 +141,7 @@ fun MensalidadeScreen(repository: SheetsRepository) {
                 }
 
                 if (formularioExpandido) {
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
                     OutlinedTextField(
                         value = nome,

@@ -1,9 +1,7 @@
 package com.pessoal.controlefinanceiro.ui.resumoanual
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -12,15 +10,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.patrykandpatrick.vico.compose.cartesian.CartesianChartHost
-import com.patrykandpatrick.vico.compose.cartesian.axis.rememberBottomAxis
-import com.patrykandpatrick.vico.compose.cartesian.axis.rememberStartAxis
-import com.patrykandpatrick.vico.compose.cartesian.layer.rememberColumnCartesianLayer
-import com.patrykandpatrick.vico.compose.cartesian.rememberCartesianChart
-import com.patrykandpatrick.vico.compose.common.component.rememberLineComponent
 import com.patrykandpatrick.vico.core.cartesian.data.CartesianChartModelProducer
 import com.patrykandpatrick.vico.core.cartesian.data.columnSeries
-import com.patrykandpatrick.vico.core.cartesian.layer.ColumnCartesianLayer
 import com.pessoal.controlefinanceiro.data.SheetsRepository
 import com.pessoal.controlefinanceiro.model.ResumoMes
 import java.text.NumberFormat
@@ -127,10 +118,6 @@ fun ResumoAnualScreen(repository: SheetsRepository) {
             HorizontalDivider(thickness = 1.dp)
 
             CardTotaisDoAno(totalEntradasAno, totalSaidasAno, saldoAno, formatoMoeda)
-
-            HorizontalDivider(thickness = 1.dp)
-
-            CardGrafico(modelProducer)
         }
     }
 }
@@ -197,46 +184,4 @@ private fun RowScope.CelulaTabela(
         color = cor,
         style = if (negrito) MaterialTheme.typography.labelSmall else MaterialTheme.typography.bodySmall
     )
-}
-
-/** Card com o gráfico de barras Entradas x Saídas por mês, com legenda. */
-@Composable
-private fun CardGrafico(modelProducer: CartesianChartModelProducer) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("Entradas x Saídas por mês", style = MaterialTheme.typography.titleMedium)
-            Spacer(modifier = Modifier.height(8.dp))
-            CartesianChartHost(
-                chart = rememberCartesianChart(
-                    rememberColumnCartesianLayer(
-                        columnProvider = ColumnCartesianLayer.ColumnProvider.series(
-                            rememberLineComponent(color = CorEntradas, thickness = 10.dp),
-                            rememberLineComponent(color = CorSaidas, thickness = 10.dp)
-                        )
-                    ),
-                    startAxis = rememberStartAxis(),
-                    bottomAxis = rememberBottomAxis(
-                        valueFormatter = { x, _, _ -> NOMES_MESES.getOrElse(x.toInt()) { "" } }
-                    )
-                ),
-                modelProducer = modelProducer,
-                modifier = Modifier.fillMaxWidth().height(220.dp)
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                LegendaItem(cor = CorEntradas, texto = "Entradas")
-                LegendaItem(cor = CorSaidas, texto = "Saídas")
-            }
-        }
-    }
-}
-
-/** Bolinha colorida + texto, usada na legenda do gráfico. */
-@Composable
-private fun LegendaItem(cor: Color, texto: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(modifier = Modifier.size(12.dp).background(cor, shape = CircleShape))
-        Spacer(modifier = Modifier.width(4.dp))
-        Text(texto, style = MaterialTheme.typography.bodySmall)
-    }
 }

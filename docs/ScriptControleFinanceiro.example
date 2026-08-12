@@ -1,0 +1,99 @@
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('ScriptControleFinanceiro')
+    .addItem('Criar próximo ano de Resumo', 'criarProximoAnoResumo')
+    .addToUi();
+}
+
+var NOME_ABA_MODELO = 'Modelo de Resumo';
+var ANO_MODELO = 2000; // ano fictício usado nas datas da aba modelo
+
+function criarProximoAnoResumo() {
+  var planilha = SpreadsheetApp.getActive();
+  var ui = SpreadsheetApp.getUi();
+  var abas = planilha.getSheets();
+  var anos = [];
+
+  abas.forEach(function(aba) {
+    var match = aba.getName().match(/^Resumo (\d{4})$/);
+    if (match) anos.push(parseInt(match[1], 10));
+  });
+
+  var novoAno;
+  var ultimoAno = null; // fica null quando não há nenhuma aba "Resumo" pra referência
+
+  if (anos.length === 0) {
+    // Nenhuma aba "Resumo" encontrada — pergunta o ano ao usuário
+    var resposta = ui.prompt(
+      'Nenhuma aba "Resumo" foi encontrada.',
+      'Digite o ano que deseja gerar (ex: 2000):',
+      ui.ButtonSet.OK_CANCEL
+    );
+
+    if (resposta.getSelectedButton() !== ui.Button.OK) {
+      return; // usuário cancelou
+    }
+
+    var textoDigitado = resposta.getResponseText().trim();
+    if (!/^\d{4}$/.test(textoDigitado)) {
+      ui.alert('Ano inválido. Digite um ano com 4 dígitos, ex: 2000.');
+      return;
+    }
+
+    novoAno = parseInt(textoDigitado, 10);
+  } else {
+    ultimoAno = Math.max.apply(null, anos);
+    novoAno = ultimoAno + 1;
+  }
+
+  var nomeNovo = 'Resumo ' + novoAno;
+
+  if (planilha.getSheetByName(nomeNovo)) {
+    ui.alert('A aba "' + nomeNovo + '" já existe.');
+    return;
+  }
+
+  var abaModelo = planilha.getSheetByName(NOME_ABA_MODELO);
+  if (!abaModelo) {
+    ui.alert('Aba modelo "' + NOME_ABA_MODELO + '" não encontrada.');
+    return;
+  }
+
+  var diferencaAnos = novoAno - ANO_MODELO;
+
+  // Duplica a aba modelo
+  var novaAba = abaModelo.copyTo(planilha);
+  novaAba.setName(nomeNovo);
+
+  // Ajusta o título (célula mesclada A1)
+  novaAba.getRange('A1').setValue(nomeNovo);
+
+  // Ajusta as 12 datas (linhas 3 a 14), somando a diferença de anos
+  for (var linha = 3; linha <= 14; linha++) {
+    var celula = novaAba.getRange(linha, 1);
+    var dataOriginal = celula.getValue();
+    if (dataOriginal instanceof Date) {
+      var novaData = new Date(
+        dataOriginal.getFullYear() + diferencaAnos,
+        dataOriginal.getMonth(),
+        dataOriginal.getDate(),
+        12, 0, 0 // meio-dia, evita deslocamento por fuso horário
+      );
+      celula.setValue(novaData);
+    }
+  }
+
+  // Move a nova aba pra logo após a última aba "Resumo" existente — só faz
+  // sentido se já existia alguma; se essa é a primeira aba "Resumo" da
+  // planilha, deixa ela onde o copyTo() já posicionou (no fim das abas)
+  if (ultimoAno !== null) {
+    var abaUltimoAno = planilha.getSheetByName('Resumo ' + ultimoAno);
+    if (abaUltimoAno) {
+      var indiceUltimaResumo = abaUltimoAno.getIndex();
+      planilha.setActiveSheet(novaAba);
+      planilha.moveActiveSheet(indiceUltimaResumo + 1);
+    }
+  }
+
+  ui.alert('Aba "' + nomeNovo + '" criada com sucesso!');
+}

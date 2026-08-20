@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.*
@@ -57,7 +58,7 @@ fun AppNavHost(repository: SheetsRepository) {
 
     Scaffold(
         bottomBar = {
-            NavigationBar {
+            NavigationBar(tonalElevation = 4.dp) {
                 val backStackEntry by navController.currentBackStackEntryAsState()
                 val rotaAtual = backStackEntry?.destination?.route
 

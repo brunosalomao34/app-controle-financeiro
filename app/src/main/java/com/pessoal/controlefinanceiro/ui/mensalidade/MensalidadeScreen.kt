@@ -33,6 +33,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pessoal.controlefinanceiro.data.SheetsRepository
 import com.pessoal.controlefinanceiro.model.Mensalidade
+import com.pessoal.controlefinanceiro.ui.theme.CorDividerPadrao
+import com.pessoal.controlefinanceiro.ui.theme.ElevacaoCardPadrao
 import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.util.Calendar
@@ -63,6 +65,7 @@ fun MensalidadeScreen(repository: SheetsRepository) {
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val formatoMoeda = remember { NumberFormat.getCurrencyInstance(Locale("pt", "BR")) }
+
     val scope = rememberCoroutineScope()
 
     // Controla se o formulário "Nova Mensalidade" está expandido
@@ -85,8 +88,19 @@ fun MensalidadeScreen(repository: SheetsRepository) {
 
     suspend fun recarregar() {
         carregando = true
-        mensalidades = repository.listarMensalidadesAtivas()
-        carregando = false
+        try {
+            mensalidades = repository.listarMensalidadesAtivas()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Toast.makeText(
+                context,
+                e.message ?: "Erro ao carregar mensalidades.",
+                Toast.LENGTH_LONG
+            ).show()
+        } finally {
+            carregando = false
+        }
     }
 
     fun moverMensalidade(indice: Int, novoIndice: Int) {
@@ -102,183 +116,212 @@ fun MensalidadeScreen(repository: SheetsRepository) {
 
     LaunchedEffect(Unit) { recarregar() }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .imePadding()
-            .pointerInput(Unit) {
-                detectTapGestures(onTap = { focusManager.clearFocus() })
-            }
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        Text("Mensalidades", style = MaterialTheme.typography.headlineSmall)
-
-        // ── Formulário de nova mensalidade — clicável pra abrir/fechar ──
-        // Padding vertical de 8dp (não 16) deixa o cabeçalho fechado com
-        // altura próxima à de um campo de filtro (Mês/Ano/Pagamento),
-        // igual às Telas de Resumo Mensal e Anual.
-        Card(
+    // Box externo: permite que o indicador de carregamento fique sobreposto
+    // (overlay) e centralizado na tela inteira, em vez de centralizado só
+    // no espaço que sobra depois do cabeçalho/formulário dentro da Column.
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .clickable { formularioExpandido = !formularioExpandido }
-        ) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Nova Mensalidade", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    IconButton(onClick = { formularioExpandido = !formularioExpandido }) {
-                        Icon(
-                            imageVector = if (formularioExpandido) Icons.Filled.ArrowCircleUp else Icons.Filled.ArrowCircleDown,
-                            contentDescription = if (formularioExpandido) "Recolher formulário" else "Expandir formulário"
-                        )
-                    }
+                .fillMaxSize()
+                .statusBarsPadding()
+                .imePadding()
+                .pointerInput(Unit) {
+                    detectTapGestures(onTap = { focusManager.clearFocus() })
                 }
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text("Mensalidades", style = MaterialTheme.typography.headlineSmall)
 
-                if (formularioExpandido) {
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    OutlinedTextField(
-                        value = nome,
-                        onValueChange = { nome = it.replace("\n", "") },
-                        label = { Text("Nome") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(
-                            capitalization = KeyboardCapitalization.Sentences,
-                            imeAction = ImeAction.Next
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    OutlinedTextField(
-                        value = valorCampo,
-                        onValueChange = { novoValor ->
-                            val apenasDigitos = novoValor.text.filter { it.isDigit() }.take(9)
-                            valorDigitos = apenasDigitos
-                            val textoFormatado = formatarValorMonetario(apenasDigitos)
-                            valorCampo = TextFieldValue(text = textoFormatado, selection = TextRange(textoFormatado.length))
-                        },
-                        label = { Text("Valor Mensal") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    ExposedDropdownMenuBox(
-                        expanded = formaPagamentoExpandida,
-                        onExpandedChange = { formaPagamentoExpandida = it }
+            // ── Formulário de nova mensalidade — clicável pra abrir/fechar ──
+            // Padding vertical de 8dp (não 16) deixa o cabeçalho fechado com
+            // altura próxima à de um campo de filtro (Mês/Ano/Pagamento),
+            // igual às Telas de Resumo Mensal e Anual.
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { formularioExpandido = !formularioExpandido },
+                elevation = CardDefaults.cardElevation(defaultElevation = ElevacaoCardPadrao)
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        OutlinedTextField(
-                            value = formaPagamentoSelecionada,
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("Forma de Pagamento") },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = formaPagamentoExpandida) },
-                            modifier = Modifier.fillMaxWidth().menuAnchor()
+                        Text(
+                            "Nova Mensalidade",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
                         )
-                        ExposedDropdownMenu(
-                            expanded = formaPagamentoExpandida,
-                            onDismissRequest = { formaPagamentoExpandida = false },
-                            modifier = Modifier.heightIn(max = ALTURA_MAXIMA_DROPDOWN)
-                        ) {
-                            FORMAS_PAGAMENTO.forEach { forma ->
-                                DropdownMenuItem(text = { Text(forma) }, onClick = {
-                                    formaPagamentoSelecionada = forma
-                                    formaPagamentoExpandida = false
-                                })
-                            }
+                        IconButton(onClick = { formularioExpandido = !formularioExpandido }) {
+                            Icon(
+                                imageVector = if (formularioExpandido) Icons.Filled.ArrowCircleUp else Icons.Filled.ArrowCircleDown,
+                                contentDescription = if (formularioExpandido) "Recolher formulário" else "Expandir formulário"
+                            )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    if (formularioExpandido) {
+                        Spacer(modifier = Modifier.height(8.dp))
 
-                    OutlinedTextField(
-                        value = observacoes,
-                        onValueChange = { observacoes = it.replace("\n", "") },
-                        label = { Text("Observações") },
-                        singleLine = false,
-                        minLines = 1,
-                        keyboardOptions = KeyboardOptions(
-                            capitalization = KeyboardCapitalization.Sentences,
-                            imeAction = ImeAction.Done
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                        OutlinedTextField(
+                            value = nome,
+                            onValueChange = { nome = it.replace("\n", "") },
+                            label = { Text("Nome") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(
+                                capitalization = KeyboardCapitalization.Sentences,
+                                imeAction = ImeAction.Next
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
 
-                    Button(
-                        enabled = !salvando && nome.isNotBlank() &&
-                                formaPagamentoSelecionada.isNotBlank() && valorDigitos.isNotBlank(),
-                        onClick = {
-                            salvando = true
-                            scope.launch {
-                                try {
-                                    val valorMensal = (valorDigitos.toLongOrNull() ?: 0L) / 100.0
-                                    repository.criarMensalidade(nome, valorMensal, formaPagamentoSelecionada, observacoes)
-                                    Toast.makeText(context, "Mensalidade salva com sucesso!", Toast.LENGTH_SHORT).show()
-                                    nome = ""
-                                    valorDigitos = ""
-                                    valorCampo = TextFieldValue(formatarValorMonetario(""))
-                                    formaPagamentoSelecionada = ""
-                                    observacoes = ""
-                                    recarregar()
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "Erro ao salvar: ${e.message}", Toast.LENGTH_LONG).show()
-                                } finally {
-                                    salvando = false
+                        OutlinedTextField(
+                            value = valorCampo,
+                            onValueChange = { novoValor ->
+                                val apenasDigitos = novoValor.text.filter { it.isDigit() }.take(9)
+                                valorDigitos = apenasDigitos
+                                val textoFormatado = formatarValorMonetario(apenasDigitos)
+                                valorCampo = TextFieldValue(
+                                    text = textoFormatado,
+                                    selection = TextRange(textoFormatado.length)
+                                )
+                            },
+                            label = { Text("Valor Mensal") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Number,
+                                imeAction = ImeAction.Next
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        ExposedDropdownMenuBox(
+                            expanded = formaPagamentoExpandida,
+                            onExpandedChange = { formaPagamentoExpandida = it }
+                        ) {
+                            OutlinedTextField(
+                                value = formaPagamentoSelecionada,
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("Forma de Pagamento") },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = formaPagamentoExpandida) },
+                                modifier = Modifier.fillMaxWidth().menuAnchor()
+                            )
+                            ExposedDropdownMenu(
+                                expanded = formaPagamentoExpandida,
+                                onDismissRequest = { formaPagamentoExpandida = false },
+                                modifier = Modifier.heightIn(max = ALTURA_MAXIMA_DROPDOWN)
+                            ) {
+                                FORMAS_PAGAMENTO.forEach { forma ->
+                                    DropdownMenuItem(text = { Text(forma) }, onClick = {
+                                        formaPagamentoSelecionada = forma
+                                        formaPagamentoExpandida = false
+                                    })
                                 }
                             }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(if (salvando) "Salvando..." else "Salvar Mensalidade")
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        OutlinedTextField(
+                            value = observacoes,
+                            onValueChange = { observacoes = it.replace("\n", "") },
+                            label = { Text("Observações") },
+                            singleLine = false,
+                            minLines = 1,
+                            keyboardOptions = KeyboardOptions(
+                                capitalization = KeyboardCapitalization.Sentences,
+                                imeAction = ImeAction.Done
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Button(
+                            enabled = !salvando && nome.isNotBlank() &&
+                                    formaPagamentoSelecionada.isNotBlank() && valorDigitos.isNotBlank(),
+                            onClick = {
+                                salvando = true
+                                scope.launch {
+                                    try {
+                                        val valorMensal = (valorDigitos.toLongOrNull() ?: 0L) / 100.0
+                                        repository.criarMensalidade(nome, valorMensal, formaPagamentoSelecionada, observacoes)
+                                        Toast.makeText(context, "Mensalidade salva com sucesso!", Toast.LENGTH_SHORT).show()
+                                        nome = ""
+                                        valorDigitos = ""
+                                        valorCampo = TextFieldValue(formatarValorMonetario(""))
+                                        formaPagamentoSelecionada = ""
+                                        observacoes = ""
+                                        recarregar()
+                                    } catch (e: kotlinx.coroutines.CancellationException) {
+                                        throw e
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Erro ao salvar: ${e.message}", Toast.LENGTH_LONG).show()
+                                    } finally {
+                                        salvando = false
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(if (salvando) "Salvando..." else "Salvar Mensalidade")
+                        }
+                    }
+                }
+            }
+
+            HorizontalDivider(thickness = 1.dp, color = CorDividerPadrao)
+
+            Text(
+                "Mensalidades Ativas",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+
+            // O caso "carregando" não desenha nada aqui — o indicador é mostrado
+            // como overlay centralizado na tela, fora desta Column (ver abaixo).
+            when {
+                carregando -> {}
+                mensalidades.isEmpty() -> {
+                    Text("Nenhuma mensalidade ativa no momento.")
+                }
+
+                else -> {
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        itemsIndexed(
+                            mensalidades,
+                            key = { _, m -> m.idMensalidade }) { indice, mensalidade ->
+                            ItemMensalidade(
+                                mensalidade = mensalidade,
+                                formatoMoeda = formatoMoeda,
+                                podeSubir = indice > 0,
+                                podeDescer = indice < mensalidades.size - 1,
+                                aoEditar = { mensalidadeParaEditar = mensalidade },
+                                aoExcluir = { mensalidadeParaExcluir = mensalidade },
+                                aoMoverParaCima = { moverMensalidade(indice, indice - 1) },
+                                aoMoverParaBaixo = { moverMensalidade(indice, indice + 1) }
+                            )
+                        }
                     }
                 }
             }
         }
 
-        HorizontalDivider(thickness = 1.dp)
-
-        // ── Lista de mensalidades ativas ──
-        Text("Mensalidades Ativas", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-
-        when {
-            carregando -> {
-                Box(modifier = Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-            }
-            mensalidades.isEmpty() -> {
-                Text("Nenhuma mensalidade ativa no momento.")
-            }
-            else -> {
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.heightIn(max = 2000.dp)
-                ) {
-                    itemsIndexed(mensalidades, key = { _, m -> m.idMensalidade }) { indice, mensalidade ->
-                        ItemMensalidade(
-                            mensalidade = mensalidade,
-                            formatoMoeda = formatoMoeda,
-                            podeSubir = indice > 0,
-                            podeDescer = indice < mensalidades.size - 1,
-                            aoEditar = { mensalidadeParaEditar = mensalidade },
-                            aoExcluir = { mensalidadeParaExcluir = mensalidade },
-                            aoMoverParaCima = { moverMensalidade(indice, indice - 1) },
-                            aoMoverParaBaixo = { moverMensalidade(indice, indice + 1) }
-                        )
-                    }
-                }
+        // Indicador de carregamento sobreposto (overlay) e centralizado na
+        // tela inteira — não afetado pela altura do cabeçalho/formulário acima.
+        if (carregando) {
+            Box(
+                modifier = Modifier.fillMaxSize().statusBarsPadding(),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
             }
         }
     }
@@ -292,13 +335,29 @@ fun MensalidadeScreen(repository: SheetsRepository) {
                 scope.launch {
                     try {
                         repository.editarMensalidade(
-                            mensalidade, novoNome, novoValor, novaForma, novasObservacoes, mesEdicao, anoEdicao
+                            mensalidade,
+                            novoNome,
+                            novoValor,
+                            novaForma,
+                            novasObservacoes,
+                            mesEdicao,
+                            anoEdicao
                         )
-                        Toast.makeText(context, "Mensalidade atualizada com sucesso!", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(
+                            context,
+                            "Mensalidade atualizada com sucesso!",
+                            Toast.LENGTH_SHORT
+                        ).show()
                         mensalidadeParaEditar = null
                         recarregar()
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
                     } catch (e: Exception) {
-                        Toast.makeText(context, "Erro ao atualizar: ${e.message}", Toast.LENGTH_LONG).show()
+                        Toast.makeText(
+                            context,
+                            "Erro ao atualizar: ${e.message}",
+                            Toast.LENGTH_LONG
+                        ).show()
                     }
                 }
             }
@@ -319,10 +378,21 @@ fun MensalidadeScreen(repository: SheetsRepository) {
             confirmButton = {
                 TextButton(onClick = {
                     scope.launch {
-                        repository.excluirMensalidade(mensalidade)
-                        mensalidadeParaExcluir = null
-                        Toast.makeText(context, "Mensalidade removida.", Toast.LENGTH_SHORT).show()
-                        recarregar()
+                        try {
+                            repository.excluirMensalidade(mensalidade)
+                            mensalidadeParaExcluir = null
+                            Toast.makeText(context, "Mensalidade removida.", Toast.LENGTH_SHORT)
+                                .show()
+                            recarregar()
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Toast.makeText(
+                                context,
+                                "Erro ao remover: ${e.message}",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
                     }
                 }) { Text("Remover") }
             },
@@ -346,7 +416,10 @@ private fun ItemMensalidade(
     aoMoverParaCima: () -> Unit,
     aoMoverParaBaixo: () -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = ElevacaoCardPadrao)
+    ) {
         Row(
             modifier = Modifier.padding(12.dp).fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,

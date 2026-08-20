@@ -17,20 +17,43 @@ private val EsquemaDeCoresApp = lightColorScheme(
     onSecondary = Color.White,
     secondaryContainer = VerdeEntradaContainer,
     onSecondaryContainer = VerdeEntrada,
+    tertiary = DouradoDestaque,
+    onTertiary = Color.White,
+    tertiaryContainer = DouradoDestaqueContainer,
+    onTertiaryContainer = DouradoDestaqueEscuro,
     error = VermelhoSaida,
+    onError = Color.White,
     errorContainer = VermelhoSaidaContainer,
+    onErrorContainer = VermelhoSaida,
     background = FundoApp,
+    onBackground = TextoPrincipal,
     surface = SuperficieCard,
-    surfaceVariant = FundoApp
+    onSurface = TextoPrincipal,
+    surfaceVariant = SuperficieAlta,
+    onSurfaceVariant = TextoSecundario,
+    outline = Contorno,
+    outlineVariant = ContornoSutil
 )
 
-// Cantos mais arredondados em Cards, campos de texto e botões — dá um
-// visual mais suave sem precisar mexer em nenhuma tela individualmente
+// Cantos mais arredondados em Cards, campos de texto, menus e botões — dá
+// um visual mais suave e moderno em todas as telas, sem precisar mexer
+// tela por tela
 private val FormasApp = Shapes(
-    small = RoundedCornerShape(10.dp),
-    medium = RoundedCornerShape(16.dp),
-    large = RoundedCornerShape(22.dp)
+    extraSmall = RoundedCornerShape(8.dp),
+    small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(18.dp),
+    large = RoundedCornerShape(24.dp),
+    extraLarge = RoundedCornerShape(28.dp)
 )
+
+// Elevação padrão dos Cards do app — sombra sutil que separa visualmente o
+// card do fundo, aplicada de forma consistente em todas as telas
+val ElevacaoCardPadrao = 2.dp
+
+// Cor padrão dos HorizontalDivider do app — mais escura que o outlineVariant
+// do tema, pra marcar melhor a separação entre seções, aplicada de forma
+// consistente em todas as telas
+val CorDividerPadrao = ContornoDivider
 
 /**
  * Tema visual único do app — aplicado uma vez, na raiz (LoginActivity),
@@ -40,6 +63,7 @@ private val FormasApp = Shapes(
 fun ControleFinanceiroTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = EsquemaDeCoresApp,
+        typography = AppTypography,
         shapes = FormasApp,
         content = content
     )

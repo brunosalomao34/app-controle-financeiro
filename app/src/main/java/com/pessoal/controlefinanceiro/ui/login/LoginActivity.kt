@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.ui.res.painterResource
 import com.pessoal.controlefinanceiro.R
 import androidx.compose.material3.*
@@ -29,6 +30,7 @@ import com.pessoal.controlefinanceiro.data.possuiConexaoInternet
 import com.pessoal.controlefinanceiro.ui.comum.SemConexaoScreen
 import com.pessoal.controlefinanceiro.ui.nav.AppNavHost
 import com.pessoal.controlefinanceiro.ui.theme.ControleFinanceiroTheme
+import com.pessoal.controlefinanceiro.ui.theme.ElevacaoCardPadrao
 
 /**
  * Activity única do app. Ordem de verificação ao abrir:
@@ -159,14 +161,21 @@ private fun TelaBoasVindas(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        // Imagem do app, colocada diretamente em res/drawable/logo_app.png
-        Image(
-            painter = painterResource(id = R.drawable.logo_app),
-            contentDescription = "Ícone do app",
-            modifier = Modifier
-                .size(96.dp)
-                .clip(CircleShape)
-        )
+        // Imagem do app com um fundo circular suave atrás, criando profundidade
+        Box(contentAlignment = Alignment.Center) {
+            Box(
+                modifier = Modifier
+                    .size(120.dp)
+                    .clip(CircleShape)
+            )
+            Image(
+                painter = painterResource(id = R.drawable.logo_app),
+                contentDescription = "Ícone do app",
+                modifier = Modifier
+                    .size(96.dp)
+                    .clip(CircleShape)
+            )
+        }
 
         Spacer(modifier = Modifier.height(24.dp))
 
@@ -190,7 +199,8 @@ private fun TelaBoasVindas(
 
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = ElevacaoCardPadrao)
         ) {
             Column(
                 modifier = Modifier.padding(24.dp).fillMaxWidth(),

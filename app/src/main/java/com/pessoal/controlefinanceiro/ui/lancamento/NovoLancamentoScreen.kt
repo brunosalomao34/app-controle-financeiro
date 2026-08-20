@@ -88,34 +88,56 @@ fun NovoLancamentoScreen(
     val focusManager = LocalFocusManager.current
 
     // Carrega categorias, anos disponíveis e, se for edição, os dados do lançamento
-    LaunchedEffect(Unit) {
-        categorias = repository.buscarCategorias()
-        anos = repository.buscarAnosDisponiveis()
+    var erroCarregamento by remember { mutableStateOf<String?>(null) }
 
-        if (linhaEdicao != null) {
-            val lancamento = repository.buscarLancamentoPorLinha(linhaEdicao)
-            if (lancamento != null) {
-                descricao = lancamento.descricao
-                categoriaSelecionada = lancamento.categoria
-                valorDigitos = (lancamento.valorTotal * 100).toLong().toString()
-                valorCampo = TextFieldValue(
-                    text = formatarValorMonetario(valorDigitos),
-                    selection = TextRange(formatarValorMonetario(valorDigitos).length)
-                )
-                formaPagamentoSelecionada = lancamento.formaPagamento
-                qtdParcelas = if (lancamento.qtdParcelas > 1) lancamento.qtdParcelas.toString() else ""
-                observacoes = lancamento.observacoes
-                mesSelecionado = MESES.getOrElse(lancamento.mesNumero - 1) { mesSelecionado }
-                anoSelecionado = lancamento.anoNumero
+    LaunchedEffect(Unit) {
+        try {
+            categorias = repository.buscarCategorias()
+            anos = repository.buscarAnosDisponiveis()
+
+            if (linhaEdicao != null) {
+                val lancamento = repository.buscarLancamentoPorLinha(linhaEdicao)
+                if (lancamento != null) {
+                    descricao = lancamento.descricao
+                    categoriaSelecionada = lancamento.categoria
+                    valorDigitos = (lancamento.valorTotal * 100).toLong().toString()
+                    valorCampo = TextFieldValue(
+                        text = formatarValorMonetario(valorDigitos),
+                        selection = TextRange(formatarValorMonetario(valorDigitos).length)
+                    )
+                    formaPagamentoSelecionada = lancamento.formaPagamento
+                    qtdParcelas = if (lancamento.qtdParcelas > 1) lancamento.qtdParcelas.toString() else ""
+                    observacoes = lancamento.observacoes
+                    mesSelecionado = MESES.getOrElse(lancamento.mesNumero - 1) { mesSelecionado }
+                    anoSelecionado = lancamento.anoNumero
+                }
+                carregandoEdicao = false
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Toast.makeText(context, e.message ?: "Erro ao carregar dados.", Toast.LENGTH_LONG).show()
             carregandoEdicao = false
         }
     }
 
-    // Enquanto busca os dados de edição, mostra só um loading
+    // Enquanto busca os dados de edição, mostra loading; se der erro, mostra
+    // mensagem com opção de tentar de novo (evita ficar preso no spinner)
     if (carregandoEdicao) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
+        }
+        return
+    }
+    if (erroCarregamento != null && linhaEdicao != null) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(erroCarregamento ?: "")
+                Button(onClick = {
+                    erroCarregamento = null
+                    carregandoEdicao = true
+                }) { Text("Tentar novamente") }
+            }
         }
         return
     }
@@ -291,7 +313,7 @@ fun NovoLancamentoScreen(
         OutlinedTextField(
             value = observacoes,
             onValueChange = { observacoes = it.replace("\n", "") },
-            label = { Text("Observações") },
+            label = { Text("Observações (opcional)") },
             singleLine = false,
             minLines = 1,
             keyboardOptions = KeyboardOptions(
@@ -303,7 +325,7 @@ fun NovoLancamentoScreen(
 
         // Botão salvar — comportamento muda conforme o modo (criar vs editar)
         Button(
-            enabled = !salvando && categoriaSelecionada.isNotBlank() &&
+            enabled = !salvando && descricao.isNotBlank() && categoriaSelecionada.isNotBlank() &&
                     formaPagamentoSelecionada.isNotBlank() && valorDigitos.isNotBlank(),
             onClick = {
                 salvando = true
@@ -348,6 +370,8 @@ fun NovoLancamentoScreen(
                             observacoes = ""
                             categoriaSelecionada = ""
                         }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         Toast.makeText(context, "Erro ao salvar: ${e.message}", Toast.LENGTH_LONG).show()
                     } finally {
@@ -355,7 +379,7 @@ fun NovoLancamentoScreen(
                     }
                 }
             },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth().height(52.dp)
         ) {
             Text(if (salvando) "Salvando..." else if (modoEdicao) "Salvar Alterações" else "Salvar Lançamento")
         }

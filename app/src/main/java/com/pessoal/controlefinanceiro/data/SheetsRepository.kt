@@ -4,6 +4,8 @@ import android.accounts.Account
 import android.content.Context
 import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential
 import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport
+import com.google.api.client.googleapis.json.GoogleJsonResponseException
+import com.google.api.client.http.HttpRequestInitializer
 import com.google.api.client.json.gson.GsonFactory
 import com.google.api.services.sheets.v4.Sheets
 import com.google.api.services.sheets.v4.SheetsScopes
@@ -14,6 +16,9 @@ import com.pessoal.controlefinanceiro.model.Mensalidade
 import com.pessoal.controlefinanceiro.model.ResumoMes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.IOException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -41,6 +46,11 @@ class SheetsRepository(context: Context, account: Account) {
         // ultrapassar isso, é só aumentar esse número (e estender as fórmulas
         // ARRAYFORMULA na planilha até a mesma linha).
         private const val ULTIMA_LINHA = 5000
+
+        // Timeouts de conexão/leitura das chamadas ao Sheets. O padrão do
+        // google-api-client (20s) é curto demais pra rede móvel instável —
+        // aumentar reduz a frequência de SocketTimeoutException.
+        private const val TIMEOUT_MS = 30_000
     }
 
     private val credential = GoogleAccountCredential.usingOAuth2(
@@ -50,7 +60,11 @@ class SheetsRepository(context: Context, account: Account) {
     private val sheetsService: Sheets = Sheets.Builder(
         GoogleNetHttpTransport.newTrustedTransport(),
         GsonFactory.getDefaultInstance(),
-        credential
+        HttpRequestInitializer { request ->
+            credential.initialize(request)
+            request.connectTimeout = TIMEOUT_MS
+            request.readTimeout = TIMEOUT_MS
+        }
     ).setApplicationName("Controle Financeiro").build()
 
     // Cache simples da lista de anos disponíveis, pra não bater na API toda vez
@@ -66,13 +80,37 @@ class SheetsRepository(context: Context, account: Account) {
     )
 
     /**
+     * Executa uma chamada síncrona ao Sheets capturando erros de rede/API e
+     * relançando com uma mensagem amigável pro usuário. Todas as funções
+     * públicas deste repositório passam suas chamadas de API por aqui, então
+     * nenhuma exceção de rede sobe "crua" até a UI (o que derrubava o app).
+     */
+    private inline fun <T> chamarApi(operacao: String, bloco: () -> T): T {
+        try {
+            return bloco()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e // nunca engolir cancelamento — é o Compose cancelando a coroutine, não um erro
+        } catch (e: SocketTimeoutException) {
+            throw Exception("Tempo esgotado ao $operacao. Verifique sua internet e tente novamente.", e)
+        } catch (e: UnknownHostException) {
+            throw Exception("Sem conexão com a internet.", e)
+        } catch (e: GoogleJsonResponseException) {
+            throw Exception("Erro na planilha ao $operacao (código ${e.statusCode}).", e)
+        } catch (e: IOException) {
+            throw Exception("Erro de rede ao $operacao. Tente novamente.", e)
+        }
+    }
+
+    /**
      * Descobre em qual linha da aba Lançamentos deve ser inserido o próximo
      * lançamento (primeira linha vazia a partir da linha 3).
      */
     suspend fun proximaLinhaVazia(): Int = withContext(Dispatchers.IO) {
-        val response = sheetsService.spreadsheets().values()
-            .get(SPREADSHEET_ID, "Lançamentos!A3:A$ULTIMA_LINHA")
-            .execute()
+        val response = chamarApi("buscar próxima linha") {
+            sheetsService.spreadsheets().values()
+                .get(SPREADSHEET_ID, "Lançamentos!A3:A$ULTIMA_LINHA")
+                .execute()
+        }
         val quantidadePreenchida = response.getValues()?.size ?: 0
         3 + quantidadePreenchida
     }
@@ -92,19 +130,21 @@ class SheetsRepository(context: Context, account: Account) {
         mesAno: String,
         observacoes: String
     ) = withContext(Dispatchers.IO) {
-        val colunasAC = ValueRange().setValues(listOf(listOf(data, descricao, categoria)))
-        sheetsService.spreadsheets().values()
-            .update(SPREADSHEET_ID, "Lançamentos!A$linha:C$linha", colunasAC)
-            .setValueInputOption("USER_ENTERED")
-            .execute()
+        chamarApi("salvar lançamento") {
+            val colunasAC = ValueRange().setValues(listOf(listOf(data, descricao, categoria)))
+            sheetsService.spreadsheets().values()
+                .update(SPREADSHEET_ID, "Lançamentos!A$linha:C$linha", colunasAC)
+                .setValueInputOption("USER_ENTERED")
+                .execute()
 
-        val colunasEI = ValueRange().setValues(
-            listOf(listOf(valorTotal, formaPagamento, qtdParcelas ?: "", mesAno, observacoes))
-        )
-        sheetsService.spreadsheets().values()
-            .update(SPREADSHEET_ID, "Lançamentos!E$linha:I$linha", colunasEI)
-            .setValueInputOption("USER_ENTERED")
-            .execute()
+            val colunasEI = ValueRange().setValues(
+                listOf(listOf(valorTotal, formaPagamento, qtdParcelas ?: "", mesAno, observacoes))
+            )
+            sheetsService.spreadsheets().values()
+                .update(SPREADSHEET_ID, "Lançamentos!E$linha:I$linha", colunasEI)
+                .setValueInputOption("USER_ENTERED")
+                .execute()
+        }
     }
 
     /**
@@ -121,19 +161,21 @@ class SheetsRepository(context: Context, account: Account) {
         mesAno: String,
         observacoes: String
     ) = withContext(Dispatchers.IO) {
-        val colunasBC = ValueRange().setValues(listOf(listOf(descricao, categoria)))
-        sheetsService.spreadsheets().values()
-            .update(SPREADSHEET_ID, "Lançamentos!B$linha:C$linha", colunasBC)
-            .setValueInputOption("USER_ENTERED")
-            .execute()
+        chamarApi("atualizar lançamento") {
+            val colunasBC = ValueRange().setValues(listOf(listOf(descricao, categoria)))
+            sheetsService.spreadsheets().values()
+                .update(SPREADSHEET_ID, "Lançamentos!B$linha:C$linha", colunasBC)
+                .setValueInputOption("USER_ENTERED")
+                .execute()
 
-        val colunasEI = ValueRange().setValues(
-            listOf(listOf(valorTotal, formaPagamento, qtdParcelas ?: "", mesAno, observacoes))
-        )
-        sheetsService.spreadsheets().values()
-            .update(SPREADSHEET_ID, "Lançamentos!E$linha:I$linha", colunasEI)
-            .setValueInputOption("USER_ENTERED")
-            .execute()
+            val colunasEI = ValueRange().setValues(
+                listOf(listOf(valorTotal, formaPagamento, qtdParcelas ?: "", mesAno, observacoes))
+            )
+            sheetsService.spreadsheets().values()
+                .update(SPREADSHEET_ID, "Lançamentos!E$linha:I$linha", colunasEI)
+                .setValueInputOption("USER_ENTERED")
+                .execute()
+        }
     }
 
     /**
@@ -142,17 +184,19 @@ class SheetsRepository(context: Context, account: Account) {
      * nem as linhas abaixo).
      */
     suspend fun excluirLancamento(linha: Int) = withContext(Dispatchers.IO) {
-        val colunasVaziasAC = ValueRange().setValues(listOf(listOf("", "", "")))
-        sheetsService.spreadsheets().values()
-            .update(SPREADSHEET_ID, "Lançamentos!A$linha:C$linha", colunasVaziasAC)
-            .setValueInputOption("USER_ENTERED")
-            .execute()
+        chamarApi("excluir lançamento") {
+            val colunasVaziasAC = ValueRange().setValues(listOf(listOf("", "", "")))
+            sheetsService.spreadsheets().values()
+                .update(SPREADSHEET_ID, "Lançamentos!A$linha:C$linha", colunasVaziasAC)
+                .setValueInputOption("USER_ENTERED")
+                .execute()
 
-        val colunasVaziasEI = ValueRange().setValues(listOf(listOf("", "", "", "", "")))
-        sheetsService.spreadsheets().values()
-            .update(SPREADSHEET_ID, "Lançamentos!E$linha:I$linha", colunasVaziasEI)
-            .setValueInputOption("USER_ENTERED")
-            .execute()
+            val colunasVaziasEI = ValueRange().setValues(listOf(listOf("", "", "", "", "")))
+            sheetsService.spreadsheets().values()
+                .update(SPREADSHEET_ID, "Lançamentos!E$linha:I$linha", colunasVaziasEI)
+                .setValueInputOption("USER_ENTERED")
+                .execute()
+        }
     }
 
     /**
@@ -161,11 +205,13 @@ class SheetsRepository(context: Context, account: Account) {
      * que varia conforme a formatação da célula no Sheets).
      */
     suspend fun listarLancamentos(): List<Lancamento> = withContext(Dispatchers.IO) {
-        val response = sheetsService.spreadsheets().values()
-            .get(SPREADSHEET_ID, "Lançamentos!A3:O$ULTIMA_LINHA")
-            .setValueRenderOption("UNFORMATTED_VALUE")
-            .setDateTimeRenderOption("SERIAL_NUMBER")
-            .execute()
+        val response = chamarApi("carregar lançamentos") {
+            sheetsService.spreadsheets().values()
+                .get(SPREADSHEET_ID, "Lançamentos!A3:O$ULTIMA_LINHA")
+                .setValueRenderOption("UNFORMATTED_VALUE")
+                .setDateTimeRenderOption("SERIAL_NUMBER")
+                .execute()
+        }
         val linhas = response.getValues() ?: emptyList()
         val formatoData = SimpleDateFormat("dd/MM/yyyy", Locale("pt", "BR"))
 
@@ -205,18 +251,22 @@ class SheetsRepository(context: Context, account: Account) {
 
     /** Lista fixa de categorias, cadastrada na aba "Listas". */
     suspend fun buscarCategorias(): List<String> = withContext(Dispatchers.IO) {
-        val response = sheetsService.spreadsheets().values()
-            .get(SPREADSHEET_ID, "Listas!A2:A21")
-            .execute()
+        val response = chamarApi("carregar categorias") {
+            sheetsService.spreadsheets().values()
+                .get(SPREADSHEET_ID, "Listas!A2:A21")
+                .execute()
+        }
         response.getValues()?.map { it[0].toString() } ?: emptyList()
     }
 
     /** Totais mês a mês de uma aba "Resumo {ano}" (linhas 3 a 14 = jan a dez). */
     suspend fun buscarResumo(ano: Int): List<ResumoMes> = withContext(Dispatchers.IO) {
-        val response = sheetsService.spreadsheets().values()
-            .get(SPREADSHEET_ID, "Resumo $ano!A3:D14")
-            .setValueRenderOption("UNFORMATTED_VALUE")
-            .execute()
+        val response = chamarApi("carregar resumo do ano") {
+            sheetsService.spreadsheets().values()
+                .get(SPREADSHEET_ID, "Resumo $ano!A3:D14")
+                .setValueRenderOption("UNFORMATTED_VALUE")
+                .execute()
+        }
         val linhas = response.getValues() ?: emptyList()
 
         (1..12).map { mes ->
@@ -237,10 +287,12 @@ class SheetsRepository(context: Context, account: Account) {
     suspend fun buscarAnosDisponiveis(): List<Int> = withContext(Dispatchers.IO) {
         anosCache?.let { return@withContext it }
 
-        val planilha = sheetsService.spreadsheets()
-            .get(SPREADSHEET_ID)
-            .setFields("sheets.properties.title")
-            .execute()
+        val planilha = chamarApi("carregar anos disponíveis") {
+            sheetsService.spreadsheets()
+                .get(SPREADSHEET_ID)
+                .setFields("sheets.properties.title")
+                .execute()
+        }
 
         val regexNomeAba = Regex("""^Resumo (\d{4})$""")
         val anos = planilha.sheets
@@ -398,11 +450,13 @@ class SheetsRepository(context: Context, account: Account) {
     suspend fun excluirMensalidade(mensalidade: Mensalidade) = withContext(Dispatchers.IO) {
         excluirLancamento(mensalidade.linha)
 
-        val colunaNVazia = ValueRange().setValues(listOf(listOf("")))
-        sheetsService.spreadsheets().values()
-            .update(SPREADSHEET_ID, "Lançamentos!N${mensalidade.linha}", colunaNVazia)
-            .setValueInputOption("USER_ENTERED")
-            .execute()
+        chamarApi("excluir mensalidade") {
+            val colunaNVazia = ValueRange().setValues(listOf(listOf("")))
+            sheetsService.spreadsheets().values()
+                .update(SPREADSHEET_ID, "Lançamentos!N${mensalidade.linha}", colunaNVazia)
+                .setValueInputOption("USER_ENTERED")
+                .execute()
+        }
     }
 
     /**
@@ -422,25 +476,27 @@ class SheetsRepository(context: Context, account: Account) {
         idMensalidade: String,
         ordem: Int
     ) = withContext(Dispatchers.IO) {
-        val colunasAC = ValueRange().setValues(listOf(listOf(data, nome, "Mensalidade")))
-        sheetsService.spreadsheets().values()
-            .update(SPREADSHEET_ID, "Lançamentos!A$linha:C$linha", colunasAC)
-            .setValueInputOption("USER_ENTERED")
-            .execute()
+        chamarApi("salvar mensalidade") {
+            val colunasAC = ValueRange().setValues(listOf(listOf(data, nome, "Mensalidade")))
+            sheetsService.spreadsheets().values()
+                .update(SPREADSHEET_ID, "Lançamentos!A$linha:C$linha", colunasAC)
+                .setValueInputOption("USER_ENTERED")
+                .execute()
 
-        val colunasEI = ValueRange().setValues(
-            listOf(listOf(valorTotal, formaPagamento, qtdParcelas, mesAno, observacoes))
-        )
-        sheetsService.spreadsheets().values()
-            .update(SPREADSHEET_ID, "Lançamentos!E$linha:I$linha", colunasEI)
-            .setValueInputOption("USER_ENTERED")
-            .execute()
+            val colunasEI = ValueRange().setValues(
+                listOf(listOf(valorTotal, formaPagamento, qtdParcelas, mesAno, observacoes))
+            )
+            sheetsService.spreadsheets().values()
+                .update(SPREADSHEET_ID, "Lançamentos!E$linha:I$linha", colunasEI)
+                .setValueInputOption("USER_ENTERED")
+                .execute()
 
-        val colunasNO = ValueRange().setValues(listOf(listOf(idMensalidade, ordem)))
-        sheetsService.spreadsheets().values()
-            .update(SPREADSHEET_ID, "Lançamentos!N$linha:O$linha", colunasNO)
-            .setValueInputOption("USER_ENTERED")
-            .execute()
+            val colunasNO = ValueRange().setValues(listOf(listOf(idMensalidade, ordem)))
+            sheetsService.spreadsheets().values()
+                .update(SPREADSHEET_ID, "Lançamentos!N$linha:O$linha", colunasNO)
+                .setValueInputOption("USER_ENTERED")
+                .execute()
+        }
     }
 
     /**
@@ -461,16 +517,18 @@ class SheetsRepository(context: Context, account: Account) {
      * única chamada à API, independente de quantas mensalidades existam.
      */
     suspend fun atualizarOrdemMensalidades(mensalidadesOrdenadas: List<Mensalidade>) = withContext(Dispatchers.IO) {
-        val dadosAtualizacao = mensalidadesOrdenadas.mapIndexed { indice, mensalidade ->
-            ValueRange()
-                .setRange("Lançamentos!O${mensalidade.linha}")
-                .setValues(listOf(listOf(indice)))
+        chamarApi("atualizar ordem das mensalidades") {
+            val dadosAtualizacao = mensalidadesOrdenadas.mapIndexed { indice, mensalidade ->
+                ValueRange()
+                    .setRange("Lançamentos!O${mensalidade.linha}")
+                    .setValues(listOf(listOf(indice)))
+            }
+            val requisicao = com.google.api.services.sheets.v4.model.BatchUpdateValuesRequest()
+                .setValueInputOption("USER_ENTERED")
+                .setData(dadosAtualizacao)
+            sheetsService.spreadsheets().values()
+                .batchUpdate(SPREADSHEET_ID, requisicao)
+                .execute()
         }
-        val requisicao = com.google.api.services.sheets.v4.model.BatchUpdateValuesRequest()
-            .setValueInputOption("USER_ENTERED")
-            .setData(dadosAtualizacao)
-        sheetsService.spreadsheets().values()
-            .batchUpdate(SPREADSHEET_ID, requisicao)
-            .execute()
     }
 }

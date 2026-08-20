@@ -1,5 +1,6 @@
 package com.pessoal.controlefinanceiro.ui.resumoanual
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -8,12 +9,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.patrykandpatrick.vico.core.cartesian.data.CartesianChartModelProducer
 import com.patrykandpatrick.vico.core.cartesian.data.columnSeries
 import com.pessoal.controlefinanceiro.data.SheetsRepository
 import com.pessoal.controlefinanceiro.model.ResumoMes
+import com.pessoal.controlefinanceiro.ui.theme.CorDividerPadrao
+import com.pessoal.controlefinanceiro.ui.theme.ElevacaoCardPadrao
 import java.text.NumberFormat
 import java.util.Calendar
 import java.util.Locale
@@ -39,6 +43,7 @@ private val ALTURA_MAXIMA_DROPDOWN = 305.dp
 fun ResumoAnualScreen(repository: SheetsRepository) {
     val formatoMoeda = remember { NumberFormat.getCurrencyInstance(Locale("pt", "BR")) }
     val modelProducer = remember { CartesianChartModelProducer() }
+    val context = LocalContext.current
 
     var anoSelecionado by remember { mutableStateOf(Calendar.getInstance().get(Calendar.YEAR)) }
     var anoExpandido by remember { mutableStateOf(false) }
@@ -48,23 +53,35 @@ fun ResumoAnualScreen(repository: SheetsRepository) {
 
     // Carrega a lista de anos com aba de Resumo na planilha (uma vez só)
     LaunchedEffect(Unit) {
-        anosDisponiveis = repository.buscarAnosDisponiveis()
-        if (anosDisponiveis.isNotEmpty() && anoSelecionado !in anosDisponiveis) {
-            anoSelecionado = anosDisponiveis.last()
+        try {
+            anosDisponiveis = repository.buscarAnosDisponiveis()
+            if (anosDisponiveis.isNotEmpty() && anoSelecionado !in anosDisponiveis) {
+                anoSelecionado = anosDisponiveis.last()
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Toast.makeText(context, e.message ?: "Erro ao carregar anos.", Toast.LENGTH_LONG).show()
         }
     }
 
     // Recarrega o resumo e atualiza o gráfico sempre que o ano muda
     LaunchedEffect(anoSelecionado) {
         carregando = true
-        resumo = repository.buscarResumo(anoSelecionado)
-        carregando = false
-
-        modelProducer.runTransaction {
-            columnSeries {
-                series(resumo.map { it.totalEntradas })
-                series(resumo.map { it.totalSaidas })
+        try {
+            resumo = repository.buscarResumo(anoSelecionado)
+            modelProducer.runTransaction {
+                columnSeries {
+                    series(resumo.map { it.totalEntradas })
+                    series(resumo.map { it.totalSaidas })
+                }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Toast.makeText(context, e.message ?: "Erro ao carregar resumo.", Toast.LENGTH_LONG).show()
+        } finally {
+            carregando = false
         }
     }
 
@@ -72,52 +89,70 @@ fun ResumoAnualScreen(repository: SheetsRepository) {
     val totalSaidasAno = resumo.sumOf { it.totalSaidas }
     val saldoAno = totalEntradasAno - totalSaidasAno
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        Text("Resumo Anual", style = MaterialTheme.typography.headlineSmall)
+    // Box externo: permite que o indicador de carregamento fique sobreposto
+    // (overlay) e centralizado na tela inteira, em vez de centralizado só
+    // no espaço que sobra depois do cabeçalho/filtro dentro da Column.
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text("Resumo Anual", style = MaterialTheme.typography.headlineSmall)
 
-        // Seletor de ano — só mostra anos que existem na planilha
-        ExposedDropdownMenuBox(expanded = anoExpandido, onExpandedChange = { anoExpandido = it }) {
-            OutlinedTextField(
-                value = anoSelecionado.toString(),
-                onValueChange = {},
-                readOnly = true,
-                label = { Text("Ano") },
-                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = anoExpandido) },
-                modifier = Modifier.fillMaxWidth().menuAnchor()
-            )
-            ExposedDropdownMenu(
-                expanded = anoExpandido,
-                onDismissRequest = { anoExpandido = false },
-                modifier = Modifier.heightIn(max = ALTURA_MAXIMA_DROPDOWN)
-            ) {
-                anosDisponiveis.forEach { ano ->
-                    DropdownMenuItem(text = { Text(ano.toString()) }, onClick = {
-                        anoSelecionado = ano
-                        anoExpandido = false
-                    })
+            // Seletor de ano — só mostra anos que existem na planilha
+            ExposedDropdownMenuBox(expanded = anoExpandido, onExpandedChange = { anoExpandido = it }) {
+                OutlinedTextField(
+                    value = anoSelecionado.toString(),
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Ano") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = anoExpandido) },
+                    modifier = Modifier.fillMaxWidth().menuAnchor()
+                )
+                ExposedDropdownMenu(
+                    expanded = anoExpandido,
+                    onDismissRequest = { anoExpandido = false },
+                    modifier = Modifier.heightIn(max = ALTURA_MAXIMA_DROPDOWN)
+                ) {
+                    anosDisponiveis.forEach { ano ->
+                        DropdownMenuItem(text = { Text(ano.toString()) }, onClick = {
+                            anoSelecionado = ano
+                            anoExpandido = false
+                        })
+                    }
+                }
+            }
+
+            HorizontalDivider(thickness = 1.dp, color = CorDividerPadrao)
+
+            // Enquanto carrega, não desenha nada aqui — o indicador é mostrado
+            // como overlay centralizado na tela, fora desta Column (ver abaixo).
+            if (!carregando) {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    CardTabelaMensal(resumo, formatoMoeda)
+
+                    HorizontalDivider(thickness = 1.dp, color = CorDividerPadrao)
+
+                    CardTotaisDoAno(totalEntradasAno, totalSaidasAno, saldoAno, formatoMoeda)
                 }
             }
         }
 
-        HorizontalDivider(thickness = 1.dp)
-
+        // Indicador de carregamento sobreposto (overlay) e centralizado na
+        // tela inteira — não afetado pela altura do cabeçalho/seletor acima.
         if (carregando) {
-            Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+            Box(
+                modifier = Modifier.fillMaxSize().statusBarsPadding(),
+                contentAlignment = Alignment.Center
+            ) {
                 CircularProgressIndicator()
             }
-        } else {
-            CardTabelaMensal(resumo, formatoMoeda)
-
-            HorizontalDivider(thickness = 1.dp)
-
-            CardTotaisDoAno(totalEntradasAno, totalSaidasAno, saldoAno, formatoMoeda)
         }
     }
 }
@@ -130,7 +165,10 @@ private fun CardTotaisDoAno(
     saldo: Double,
     formatoMoeda: NumberFormat
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = ElevacaoCardPadrao)
+    ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("Total do Ano", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text("Entradas: ${formatoMoeda.format(totalEntradas)}")
@@ -143,7 +181,10 @@ private fun CardTotaisDoAno(
 /** Card com a tabela de Entradas/Saídas/Saldo mês a mês. */
 @Composable
 private fun CardTabelaMensal(resumo: List<ResumoMes>, formatoMoeda: NumberFormat) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = ElevacaoCardPadrao)
+    ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(modifier = Modifier.fillMaxWidth()) {
                 CelulaTabela("Mês", peso = 0.7f, negrito = true)

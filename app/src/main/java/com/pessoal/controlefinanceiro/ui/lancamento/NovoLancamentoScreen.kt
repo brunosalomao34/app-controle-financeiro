@@ -172,6 +172,46 @@ fun NovoLancamentoScreen(
             modifier = Modifier.fillMaxWidth()
         )
 
+        // Observações — cresce com o texto (sem quebra de linha manual)
+        OutlinedTextField(
+            value = observacoes,
+            onValueChange = { observacoes = it.replace("\n", "") },
+            label = { Text("Observações (opcional)") },
+            singleLine = false,
+            minLines = 1,
+            keyboardOptions = KeyboardOptions(
+                capitalization = KeyboardCapitalization.Sentences,
+                imeAction = ImeAction.Next
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        // Valor Total — máscara estilo bancário: digita da direita pra esquerda,
+        // cursor sempre fixado no final (TextFieldValue controla a seleção manualmente)
+        OutlinedTextField(
+            value = valorCampo,
+            onValueChange = { novoValor ->
+                val apenasDigitos = novoValor.text.filter { it.isDigit() }.take(9)
+                valorDigitos = apenasDigitos
+                val textoFormatado = formatarValorMonetario(apenasDigitos)
+                valorCampo = TextFieldValue(text = textoFormatado, selection = TextRange(textoFormatado.length))
+            },
+            label = { Text("Valor Total") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        // Qtd. Parcelas — opcional; se vazio, a planilha assume 1 parcela
+        OutlinedTextField(
+            value = qtdParcelas,
+            onValueChange = { qtdParcelas = it.filter { c -> c.isDigit() } },
+            label = { Text("Qtd. Parcelas (opcional)") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+            modifier = Modifier.fillMaxWidth()
+        )
+
         // Categoria — lista fixa vinda da aba "Listas"
         ExposedDropdownMenuBox(
             expanded = categoriaExpandida,
@@ -199,22 +239,6 @@ fun NovoLancamentoScreen(
             }
         }
 
-        // Valor Total — máscara estilo bancário: digita da direita pra esquerda,
-        // cursor sempre fixado no final (TextFieldValue controla a seleção manualmente)
-        OutlinedTextField(
-            value = valorCampo,
-            onValueChange = { novoValor ->
-                val apenasDigitos = novoValor.text.filter { it.isDigit() }.take(9)
-                valorDigitos = apenasDigitos
-                val textoFormatado = formatarValorMonetario(apenasDigitos)
-                valorCampo = TextFieldValue(text = textoFormatado, selection = TextRange(textoFormatado.length))
-            },
-            label = { Text("Valor Total") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
-            modifier = Modifier.fillMaxWidth()
-        )
-
         // Forma de Pagamento — lista fixa (Dinheiro, Pix, Boleto, Débito, Crédito)
         ExposedDropdownMenuBox(
             expanded = formaPagamentoExpandida,
@@ -241,16 +265,6 @@ fun NovoLancamentoScreen(
                 }
             }
         }
-
-        // Qtd. Parcelas — opcional; se vazio, a planilha assume 1 parcela
-        OutlinedTextField(
-            value = qtdParcelas,
-            onValueChange = { qtdParcelas = it.filter { c -> c.isDigit() } },
-            label = { Text("Qtd. Parcelas (opcional)") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
-            modifier = Modifier.fillMaxWidth()
-        )
 
         // Mês/Ano — seleção por dropdown (nunca digitado à mão)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -308,20 +322,6 @@ fun NovoLancamentoScreen(
                 }
             }
         }
-
-        // Observações — cresce com o texto (sem quebra de linha manual)
-        OutlinedTextField(
-            value = observacoes,
-            onValueChange = { observacoes = it.replace("\n", "") },
-            label = { Text("Observações (opcional)") },
-            singleLine = false,
-            minLines = 1,
-            keyboardOptions = KeyboardOptions(
-                capitalization = KeyboardCapitalization.Sentences,
-                imeAction = ImeAction.Done
-            ),
-            modifier = Modifier.fillMaxWidth()
-        )
 
         // Botão salvar — comportamento muda conforme o modo (criar vs editar)
         Button(

@@ -5,9 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -168,8 +166,23 @@ fun MensalidadeScreen(repository: SheetsRepository) {
                         OutlinedTextField(
                             value = nome,
                             onValueChange = { nome = it.replace("\n", "") },
-                            label = { Text("Nome") },
+                            label = { Text("Descrição") },
                             singleLine = true,
+                            keyboardOptions = KeyboardOptions(
+                                capitalization = KeyboardCapitalization.Sentences,
+                                imeAction = ImeAction.Next
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        OutlinedTextField(
+                            value = observacoes,
+                            onValueChange = { observacoes = it.replace("\n", "") },
+                            label = { Text("Observações (opcional)") },
+                            singleLine = false,
+                            minLines = 1,
                             keyboardOptions = KeyboardOptions(
                                 capitalization = KeyboardCapitalization.Sentences,
                                 imeAction = ImeAction.Next
@@ -226,21 +239,6 @@ fun MensalidadeScreen(repository: SheetsRepository) {
                                 }
                             }
                         }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        OutlinedTextField(
-                            value = observacoes,
-                            onValueChange = { observacoes = it.replace("\n", "") },
-                            label = { Text("Observações") },
-                            singleLine = false,
-                            minLines = 1,
-                            keyboardOptions = KeyboardOptions(
-                                capitalization = KeyboardCapitalization.Sentences,
-                                imeAction = ImeAction.Done
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        )
 
                         Spacer(modifier = Modifier.height(12.dp))
 
@@ -476,7 +474,7 @@ fun DialogoEditarMensalidade(
     onDismiss: () -> Unit,
     onConfirmar: (novoNome: String, novoValor: Double, novaForma: String, novasObservacoes: String, mesEdicao: Int, anoEdicao: Int) -> Unit
 ) {
-    var nome by remember { mutableStateOf(mensalidade.nome) }
+    var descricao by remember { mutableStateOf(mensalidade.nome) }
     var valorDigitos by remember { mutableStateOf((mensalidade.valorMensal * 100).toLong().toString()) }
     var valorCampo by remember {
         mutableStateOf(
@@ -512,10 +510,20 @@ fun DialogoEditarMensalidade(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
-                    value = nome,
-                    onValueChange = { nome = it.replace("\n", "") },
-                    label = { Text("Nome") },
+                    value = descricao,
+                    onValueChange = { descricao = it.replace("\n", "") },
+                    label = { Text("Descrição") },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = observacoes,
+                    onValueChange = { observacoes = it.replace("\n", "") },
+                    label = { Text("Observações (opcional)") },
+                    singleLine = false,
+                    minLines = 1,
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -560,16 +568,6 @@ fun DialogoEditarMensalidade(
                     }
                 }
 
-                OutlinedTextField(
-                    value = observacoes,
-                    onValueChange = { observacoes = it.replace("\n", "") },
-                    label = { Text("Observações") },
-                    singleLine = false,
-                    minLines = 1,
-                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
                 ExposedDropdownMenuBox(
                     expanded = mesEdicaoExpandido,
                     onExpandedChange = { mesEdicaoExpandido = it }
@@ -599,12 +597,12 @@ fun DialogoEditarMensalidade(
         },
         confirmButton = {
             TextButton(
-                enabled = nome.isNotBlank() && formaPagamentoSelecionada.isNotBlank() &&
+                enabled = descricao.isNotBlank() && formaPagamentoSelecionada.isNotBlank() &&
                         valorDigitos.isNotBlank() && opcaoSelecionada != null,
                 onClick = {
                     val (mes, ano, _) = opcaoSelecionada!!
                     val valorMensal = (valorDigitos.toLongOrNull() ?: 0L) / 100.0
-                    onConfirmar(nome, valorMensal, formaPagamentoSelecionada, observacoes, mes, ano)
+                    onConfirmar(descricao, valorMensal, formaPagamentoSelecionada, observacoes, mes, ano)
                 }
             ) { Text("Salvar") }
         },

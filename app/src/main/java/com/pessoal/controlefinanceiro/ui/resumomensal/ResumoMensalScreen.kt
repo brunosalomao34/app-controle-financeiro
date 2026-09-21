@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AttachMoney
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -82,6 +83,11 @@ fun ResumoMensalScreen(repository: SheetsRepository, aoEditar: (Int) -> Unit) {
     var formaPagamentoFiltro by remember { mutableStateOf("Todos") }
     var formaPagamentoFiltroExpandido by remember { mutableStateOf(false) }
 
+    // Filtro por categoria — "Todas" por padrão, lista carregada da aba "Listas"
+    var categorias by remember { mutableStateOf<List<String>>(emptyList()) }
+    var categoriaFiltro by remember { mutableStateOf("Todas") }
+    var categoriaFiltroExpandido by remember { mutableStateOf(false) }
+
     // Busca por texto livre — campo fica escondido até clicar na lupa
     var buscaExpandida by remember { mutableStateOf(false) }
     var textoBusca by remember { mutableStateOf("") }
@@ -109,6 +115,11 @@ fun ResumoMensalScreen(repository: SheetsRepository, aoEditar: (Int) -> Unit) {
         }
     }
 
+    // Carrega a lista fixa de categorias (aba "Listas") para o filtro de categoria
+    LaunchedEffect(Unit) {
+        categorias = repository.buscarCategorias()
+    }
+
     // Recarrega os lançamentos toda vez que a tela volta a ficar visível
     // (primeira abertura + retorno de uma edição/outra aba)
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -129,11 +140,12 @@ fun ResumoMensalScreen(repository: SheetsRepository, aoEditar: (Int) -> Unit) {
     // se escolhido, também pela forma de pagamento. Mensalidades (categoria
     // "Mensalidade") vêm sempre primeiro, na ordem definida na Tela de
     // Mensalidades; os demais lançamentos seguem a ordem de lançamento.
-    val lancamentosFiltrados = remember(todosLancamentos, mesSelecionado, anoSelecionado, formaPagamentoFiltro, textoBusca) {
+    val lancamentosFiltrados = remember(todosLancamentos, mesSelecionado, anoSelecionado, formaPagamentoFiltro, categoriaFiltro, textoBusca) {
         val termoBusca = textoBusca.trim().lowercase()
         todosLancamentos
             .filter { indiceMesConsultado in it.mesInicioIndex..it.mesFimIndex }
             .filter { formaPagamentoFiltro == "Todos" || it.formaPagamento == formaPagamentoFiltro }
+            .filter { categoriaFiltro == "Todas" || it.categoria == categoriaFiltro }
             .filter { lancamento ->
                 if (termoBusca.isBlank()) return@filter true
                 // Valor comparado: parcela (quando parcelado, é o valor exibido no card) e total
@@ -174,14 +186,53 @@ fun ResumoMensalScreen(repository: SheetsRepository, aoEditar: (Int) -> Unit) {
 
                 CompositionLocalProvider(LocalMinimumInteractiveComponentEnforcement provides false) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        // Ícone de filtro por forma de pagamento
+                        // Ícone de filtro por categoria
+                        Box {
+                            IconButton(
+                                onClick = { categoriaFiltroExpandido = true },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.FilterAlt,
+                                    contentDescription = "Filtrar por categoria",
+                                    tint = if (categoriaFiltro != "Todas")
+                                        MaterialTheme.colorScheme.primary
+                                    else
+                                        LocalContentColor.current
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = categoriaFiltroExpandido,
+                                onDismissRequest = { categoriaFiltroExpandido = false },
+                                modifier = Modifier.heightIn(max = ALTURA_MAXIMA_DROPDOWN)
+                            ) {
+                                (listOf("Todas") + categorias).forEach { categoria ->
+                                    DropdownMenuItem(
+                                        text = { Text(categoria) },
+                                        onClick = {
+                                            categoriaFiltro = categoria
+                                            categoriaFiltroExpandido = false
+                                        },
+                                        trailingIcon = {
+                                            if (categoria == categoriaFiltro) {
+                                                Icon(Icons.Default.Check, contentDescription = null)
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(16.dp))
+
+                        // Ícone de filtro por forma de pagamento (cifrão)
                         Box {
                             IconButton(
                                 onClick = { formaPagamentoFiltroExpandido = true },
                                 modifier = Modifier.size(24.dp)
                             ) {
                                 Icon(
-                                    Icons.Default.FilterAlt,
+                                    Icons.Default.AttachMoney,
                                     contentDescription = "Filtrar por forma de pagamento",
                                     tint = if (formaPagamentoFiltro != "Todos")
                                         MaterialTheme.colorScheme.primary
